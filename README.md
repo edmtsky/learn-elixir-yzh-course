@@ -1,5 +1,11 @@
 # Мои решения домашек из учебного курса по языку прогрммирования Elixir
 
+## О самом курсе
+
+> [Видео](https://www.youtube.com/playlist?list=PLYuTgpYrBrVKnzanStbVGD09Cdx4YNEpO)
+> [Репозиторий курса](https://github.com/yzh44yzh/elixir_course)
+> [Как поддержать автора курса](https://boosty.to/yury.zhloba)
+
 
 ## Способы запустить тесты
 
@@ -29,7 +35,9 @@ elixirc word_count.ex && elixir word_count_test.exs
 
 ## Что здесь есть
 
+- timecodes - таймкоды к видео курса.
 - 01-fizzbuss - пример поэтапной разработки простейшей программы
 - 03-types-examples - примеры исходного кода из 2го урока
 - 03-types-homework - домашки третьего урока
+- 04-control-flow - ветвления в коде, примеры: case, function clauese, guards
 
