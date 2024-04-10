@@ -149,4 +149,108 @@ defmodule ControlFlow do
   def handle9(_m) do
     IO.puts("not a big map (or not a map)")
   end
+
+  def handle10_i1(num) do
+    cond do
+      num > 10 -> IO.puts("num more than 10")
+      num > 5 -> IO.puts("num more than 5")
+      true -> IO.puts("equal to or less than 5")
+    end
+  end
+
+  def handle10_i2(num) do
+    cond do
+      num >= 5 -> IO.puts("num more than or equal to 5")
+      true -> IO.puts("less than 5")
+    end
+  end
+
+  def handle11_i1(num) do
+    if num >= 5 do
+      IO.puts("num more than or equal to 5")
+    else
+      IO.puts("less than 5")
+    end
+  end
+
+  def handle10_i3(num) do
+    cond do
+      num >= 5 -> IO.puts("num more than or equal to 5")
+    end
+  end
+
+  def handle11_i2(num) do
+    if num >= 5 do
+      IO.puts("num more than or equal to 5")
+    end
+  end
+
+  def handle10_i4(num) do
+    cond do
+      num >= 5 -> {:ok, num}
+      true -> :error
+    end
+  end
+
+  def handle11_i3(num) do
+    if num >= 5 do
+      {:ok, num}
+    else
+      :error
+    end
+  end
+
+  def handle11_i4(num) do
+    result = if num >= 5 do
+      {:ok, num}
+    else
+      :error
+    end
+
+    result
+  end
+
+  def handle11_i5(num) do
+    result = if num >= 5 do
+      {:ok, num}
+    end
+
+    result
+  end
+
+  def divisible_by?(n, d), do: rem(n, d) == 0
+
+  def fizzbuzz(number) do
+    cond do
+      divisible_by?(number, 3) and divisible_by?(number, 5) -> IO.puts("FizzBuzz")
+      divisible_by?(number, 3) -> IO.puts("Fizz")
+      divisible_by?(number, 5) -> IO.puts("Buzz")
+      true -> IO.puts(number)
+    end
+  end
+
+  # will give an error when trying to compile
+  # Why: `case` allows only macros to be used in guards
+  # def fizzbuzz_i2(n) do
+  #   case n do
+  #     _ when divisible_by?(n, 3) and divisible_by?(n, 5) -> IO.puts("FizzBuzz")
+  #     _ when divisible_by?(n, 3) -> IO.puts("Fizz")
+  #     _ when divisible_by?(n, 5) -> IO.puts("Buzz")
+  #     _ -> IO.puts(n)
+  #   end
+  # end
+
+  # how to use own custom functions in case-guards
+  def fizzbuzz_i3(n) do
+    d3 = divisible_by?(n, 3)
+    d5 = divisible_by?(n, 5)
+    case n do
+      _ when d3 and d5 -> IO.puts("FizzBuzz")
+      _ when d3 -> IO.puts("Fizz")
+      _ when d5 -> IO.puts("Buzz")
+      _ -> IO.puts(n)
+    end
+  end
+
+
 end
