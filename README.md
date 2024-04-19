@@ -18,7 +18,10 @@ mix test
 - через низкоуровневый bash-скрипт
 ```sh
 cd 03-types-homework
-./run_tests.sh
+../run_tests.sh
+
+cd 04-homework
+../run_tests.sh
 ```
 
 - полностью вручную:
@@ -40,4 +43,5 @@ elixirc word_count.ex && elixir word_count_test.exs
 - 03-types-examples - примеры исходного кода из 2го урока
 - 03-types-homework - домашки третьего урока
 - 04-control-flow - ветвления в коде, примеры: case, function clauese, guards
+- 04-homework - решение домашки по 4му уроку. функции для шахмат и tic_tac_toe
 

@@ -13,7 +13,7 @@
 #
 
 # same tmp structure used by mix just for compatibility it can be i.g. _build
-BUILD_DIR="_build/test/lib/app/ebin"
+BUILD_DIR="_build"
 SRC_DIR="./"
 TEST_DIR="./"
 
@@ -33,8 +33,10 @@ elixirc $LIST -o $BUILD_DIR
 echo -e "\n# Testing..."
 
 I="0"
+HR="\n================================================================\n"
+
 for testfile in "$TEST_DIR"*_test.exs; do
-  echo -e "\n================\n$testfile"
+  echo -e "$HR$testfile"
   elixir -pa "$BUILD_DIR" $testfile
   if [[ $? != 0 ]]; then
     echo "Stopped on Failured test $testfile"
@@ -44,7 +46,7 @@ for testfile in "$TEST_DIR"*_test.exs; do
 done
 
 if [[ $I -gt 0 ]]; then
-  echo "[SUCCESS] All tests[$I] passed successfully!"
+  echo "[SUCCESS] All test-files[$I] passed successfully!"
 elif [[ $I -eq 0 ]]; then
   echo "[WARNING] No tests found!"
   exit 1
