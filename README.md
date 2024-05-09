@@ -6,7 +6,8 @@
 > [Репозиторий курса](https://github.com/yzh44yzh/elixir_course)
 > [Как поддержать автора курса](https://boosty.to/yury.zhloba)
 
-
+статья --> article
+статья
 ## Способы запустить тесты
 
 - через утилиту `mix`
@@ -39,9 +40,14 @@ elixirc word_count.ex && elixir word_count_test.exs
 ## Что здесь есть
 
 - timecodes - таймкоды к видео курса.
+- articles - переводы статей
 - 01-fizzbuss - пример поэтапной разработки простейшей программы
 - 03-types-examples - примеры исходного кода из 2го урока
 - 03-types-homework - домашки третьего урока
 - 04-control-flow - ветвления в коде, примеры: case, function clauese, guards
 - 04-homework - решение домашки по 4му уроку. функции для шахмат и tic_tac_toe
 
+
+# Refs
+
+https://www.erlang.org/doc/efficiency_guide/myths.html
