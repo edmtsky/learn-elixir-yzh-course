@@ -115,8 +115,6 @@ defmodule Caesar do
   end
 
   defp do_shift_ascii_codepoint(codepoint, code) do
-    # IO.inspect("before codepoint: #{codepoint} code: #{code}")
-
     case codepoint >= @min_ascii_char and codepoint <= @max_ascii_char do
       false ->
         raise(RuntimeError, "invalid ascii str")
@@ -125,15 +123,12 @@ defmodule Caesar do
         new_codepoint =
           case codepoint + code do
             cp when cp < @min_ascii_char ->
-              # IO.inspect("< 32 codepoint: #{cp} #{@min_ascii_char - cp}")
               @max_ascii_char - (@min_ascii_char - cp - 1)
 
             cp when cp > @max_ascii_char ->
-              # IO.inspect("> 126 codepoint: #{cp}")
               @min_ascii_char + (cp - @max_ascii_char - 1)
 
             cp ->
-              # IO.inspect("normal codepoint: #{cp}")
               cp
           end
 
