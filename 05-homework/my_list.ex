@@ -21,7 +21,6 @@ defmodule MyList do
     do_flatten_e(list, [])
   end
 
-  defp do_flatten_e([], acc), do: Enum.reverse(acc)
 
   # iex> L.add_to_head([3,4], [2, 1, 0])
   # [4, 3, 2, 1, 0]
@@ -31,6 +30,7 @@ defmodule MyList do
     add_to_head(tail, [head | acc])
   end
 
+  defp do_flatten_e([], acc), do: Enum.reverse(acc)
   # head is a list
   defp do_flatten_e([head | tail], acc) when is_list(head) do
     sublist = do_flatten_e(head, [])
