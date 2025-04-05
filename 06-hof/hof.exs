@@ -80,6 +80,37 @@ defmodule HOF do
     end)
   end
 
+  @type user :: {:user, integer(), String.t(), integer()}
+  @type attr_type :: :id | :name | :age
+
+  @spec sort_by_attr([user()], attr_type()) :: [user()]
+  def sort_by_attr(users, attr) do
+    sorter =
+      case attr do
+        :id -> &compare_by_id/2
+        :name -> &compare_by_name/2
+        :age -> &compare_by_age/2
+      end
+    Enum.sort(users, sorter)
+  end
+
+  def compare_by_id(user1, user2) do
+    {:user, id1, _, _} = user1
+    {:user, id2, _, _} = user2
+    id1 < id2
+  end
+
+  def compare_by_name(user1, user2) do
+    {:user, _, name1, _} = user1
+    {:user, _, name2, _} = user2
+    name1 < name2
+  end
+
+  def compare_by_age(user1, user2) do
+    {:user, _, _, age1} = user1
+    {:user, _, _, age2} = user2
+    age1 < age2
+  end
 end
 
 
