@@ -133,19 +133,6 @@ defmodule HOF do
     Enum.group_by(users, grouper)
   end
 
-{:reloaded, [HOF]}
-iex(26)> HOF.group_users(users)
-%{
-  child: [{:user, 3, "Helen", 10}, {:user, 4, "Kate", 11}],
-  old: [{:user, 6, "Dima", 65}],
-  ten: [{:user, 1, "Bob", 15}],
-  adult: [
-    {:user, 2, "Bill", 25},
-    {:user, 5, "Yura", 31},
-    {:user, 7, "Yana", 35},
-    {:user, 8, "Diana", 41}
-  ]
-}
 end
 
 
