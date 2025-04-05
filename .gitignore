@@ -24,3 +24,6 @@
 
 # Temporary files, for example, from tests.
 */tmp/
+
+# compiled elixir code
+*.beam
