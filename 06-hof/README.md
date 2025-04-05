@@ -1024,5 +1024,240 @@ iex(10)> HOF.sort_by_attr(users, :id)
 ```
 
 
+## sort_by_attr Направление сортировки
 
+3й аргумент для sort_by_attr, задающий направление для сортировки - по убыванию
+или по возрастанию.
+Можно было просто скопипастить код поменяв знак < на >, но есть способ и получше
+
+Можно поступить мудрее, используя возможности функционального языка и HOF.
+HOF Это и про то, что функции можно передавать в другие функции в виде аргумента.
+и еще когда функция возращает другую функцию. Вообще код в котором одна ф-я
+возращает другую функцию достаточно редкое явление. бывает так что на практике
+с этим и не сталкиваются, но знать об этом надо.
+
+Пишем функцию инвентер.
+
+Принимает одну функцию а возвращает инвертированное значение
+
+```elixir
+  def invertor(predicate) do
+    fn arg1, arg2 -> not predicate.(arg1, arg2) end
+  end
+```
+Здесь
+- predicate - это ссылка на функцию
+- predicate.(arg1, arg2) - это вызов функции
+- сама фун-я invertor возвращает другую функцию
+
+Обновляем код сортировки добавяля еще и направление сортировки.
+
+```elixir
+  @type user :: {:user, integer(), String.t(), integer()}
+  @type attr_type :: :id | :name | :age
+  @type direction :: :arc | :desc
+
+  @spec sort_by_attr([user()], attr_type(), direction()) :: [user()]
+  def sort_by_attr(users, attr, direction) do
+    sorter =
+      case {attr, direction} do
+        {:id, :asc} -> &compare_by_id/2
+        {:id, :desc} -> invertor(&compare_by_id/2)
+        {:name, :asc} -> &compare_by_name/2
+        {:name, :desc} -> invertor(&compare_by_name/2)
+        {:age, :asc }-> &compare_by_age/2
+        {:age, :desc }-> invertor(&compare_by_age/2)
+      end
+    Enum.sort(users, sorter)
+  end
+
+  def compare_by_id(user1, user2) do
+    {:user, id1, _, _} = user1
+    {:user, id2, _, _} = user2
+    id1 < id2
+  end
+
+  def compare_by_name(user1, user2) do
+    {:user, _, name1, _} = user1
+    {:user, _, name2, _} = user2
+    name1 < name2
+  end
+
+  def compare_by_age(user1, user2) do
+    {:user, _, _, age1} = user1
+    {:user, _, _, age2} = user2
+    age1 < age2
+  end
+
+  def invertor(predicate) do
+    fn arg1, arg2 -> not predicate.(arg1, arg2) end
+  end
+```
+
+```elixir
+iex()> r HOF
+iex()> HOF.sort_by_attr(users, :id, :desc)
+[
+  {:user, 8, "Diana", 41},
+  {:user, 7, "Yana", 35},
+  {:user, 6, "Dima", 65},
+  {:user, 5, "Yura", 31},
+  {:user, 4, "Kate", 11},
+  {:user, 3, "Helen", 10},
+  {:user, 2, "Bill", 25},
+  {:user, 1, "Bob", 15}
+]
+
+iex()> HOF.sort_by_attr(users, :id, :asc)
+[
+  {:user, 1, "Bob", 15},
+  {:user, 2, "Bill", 25},
+  {:user, 3, "Helen", 10},
+  {:user, 4, "Kate", 11},
+  {:user, 5, "Yura", 31},
+  {:user, 6, "Dima", 65},
+  {:user, 7, "Yana", 35},
+  {:user, 8, "Diana", 41}
+]
+
+iex()> HOF.sort_by_attr(users, :age, :asc)
+[
+  {:user, 3, "Helen", 10},
+  {:user, 4, "Kate", 11},
+  {:user, 1, "Bob", 15},
+  {:user, 2, "Bill", 25},
+  {:user, 5, "Yura", 31},
+  {:user, 7, "Yana", 35},
+  {:user, 8, "Diana", 41},
+  {:user, 6, "Dima", 65}
+]
+iex()> HOF.sort_by_attr(users, :age, :desc)
+[
+  {:user, 6, "Dima", 65},
+  {:user, 8, "Diana", 41},
+  {:user, 7, "Yana", 35},
+  {:user, 5, "Yura", 31},
+  {:user, 2, "Bill", 25},
+  {:user, 1, "Bob", 15},
+  {:user, 4, "Kate", 11},
+  {:user, 3, "Helen", 10}
+]
+```
+
+Как результат у нас есть функция сортировки пользователей по любому из атрибутов
+еще и с возможностью сортировки по разным направлениям(по возрастанию(:asc) и
+убыванию(:desc)
+
+
+
+### Enum.zip объединение нескольких коллекций в одну
+
+```elixir
+iex(20)> ids = [10, 20, 30, 40, 50]
+[10, 20, 30, 40, 50]
+
+iex()> Enum.zip(users, ids)
+[
+  {{:user, 1, "Bob", 15}, 10},
+  {{:user, 2, "Bill", 25}, 20},
+  {{:user, 3, "Helen", 10}, 30},
+  {{:user, 4, "Kate", 11}, 40},
+  {{:user, 5, "Yura", 31}, 50}
+]
+
+iex()> Enum.zip(ids, users)
+[
+  {10, {:user, 1, "Bob", 15}},
+  {20, {:user, 2, "Bill", 25}},
+  {30, {:user, 3, "Helen", 10}},
+  {40, {:user, 4, "Kate", 11}},
+  {50, {:user, 5, "Yura", 31}}
+]
+```
+
+Как видно zip заканчивает работу на коротком списке
+
+пример замены Id-шников из другой коллекции.
+```elixir
+zipper = fn id, {:user, _, name, age} -> {:user, id, name, age} end
+#Function<41.105768164/2 in :erl_eval.expr/6>
+
+iex(24)> Enum.zip_with(ids, users, zipper)
+[
+  {:user, 10, "Bob", 15},
+  {:user, 20, "Bill", 25},
+  {:user, 30, "Helen", 10},
+  {:user, 40, "Kate", 11},
+  {:user, 50, "Yura", 31}
+]
+```
+
+
+### Enum.group_by
+
+Для разбития коллекции на группы по некому условию. Результатом будет несколько
+списков по количеству групп. В каждой группе свои элементы. Похожий пример было
+разделение пользователей по возрасту (split_by_age). Там было две группы и
+группировка(разделение) шла по возрасту. group_by же позволяет делить на любое
+нужное количество групп.
+
+grouper - эта фун-я которая просто возращает атомы(имена) групп
+и результатом работы будет несколько списков в мапе с заданными именами групп
+
+```elixir
+ def group_users(users) do
+    grouper = fn {:user, _, _, age} ->
+      cond do
+        age <= 14 -> :child
+        age > 14 and age < 18 -> :ten
+        age > 18 and age <= 60 -> :adult
+        true -> :old
+      end
+    end
+
+    Enum.group_by(users, grouper)
+  end
+```
+
+```elixir
+iex()> r HOF
+{:reloaded, [HOF]}
+
+iex()> HOF.group_users(users)
+%{
+  child: [{:user, 3, "Helen", 10}, {:user, 4, "Kate", 11}],
+  old: [{:user, 6, "Dima", 65}],
+  ten: [{:user, 1, "Bob", 15}],
+  adult: [
+    {:user, 2, "Bill", 25},
+    {:user, 5, "Yura", 31},
+    {:user, 7, "Yana", 35},
+    {:user, 8, "Diana", 41}
+  ]
+}
+```
+
+
+## Кратко о других функциях из модуля Enum
+
+- Enum.all?/1 проверят что все элементы коллекции truthy (not flase & not nil)
+- Enum.all?/2 - 2й арг. кастомная функция проверяющая на truthy/falsy
+
+- Enum.any?/1,2 любой элемент коллекции truthy
+- Enum.count/1,2 подсчёт эл-тов в коллекции, 2 - для которых ф-я возращает true
+- Enum.drop/2 - отбросить некое кол-во в коллекции
+- Enum.drop_while - обрежет коллекцию до первого falsy
+- Enum... есть и другие HOF функции смотри доку.
+
+- Map - тоже содержит HOF функции, но для работы с Map-ами
+- Map.filter/2 - фильтрация
+- Map.merge/2 - слияние двух мап в одну
+- Map.merge/3 - 3й это функция разруливающая конфликты. выбирает из 2х одно знач.
+- Map.split_with/2 делит мапу на несколько по заданному условию
+
+- Keyword - похожие функции как в Map но не для мап а для key=value списками
+
+- List.foldl List.foldr  List.foldl это аналог Enum.reduce
+  правая свёртка - идёт от хвоста к голове
+  левая - от головы к хвосту (списка)
 

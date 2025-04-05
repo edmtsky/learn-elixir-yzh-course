@@ -82,14 +82,18 @@ defmodule HOF do
 
   @type user :: {:user, integer(), String.t(), integer()}
   @type attr_type :: :id | :name | :age
+  @type direction :: :arc | :desc
 
-  @spec sort_by_attr([user()], attr_type()) :: [user()]
-  def sort_by_attr(users, attr) do
+  @spec sort_by_attr([user()], attr_type(), direction()) :: [user()]
+  def sort_by_attr(users, attr, direction) do
     sorter =
-      case attr do
-        :id -> &compare_by_id/2
-        :name -> &compare_by_name/2
-        :age -> &compare_by_age/2
+      case {attr, direction} do
+        {:id, :asc} -> &compare_by_id/2
+        {:id, :desc} -> invertor(&compare_by_id/2)
+        {:name, :asc} -> &compare_by_name/2
+        {:name, :desc} -> invertor(&compare_by_name/2)
+        {:age, :asc }-> &compare_by_age/2
+        {:age, :desc }-> invertor(&compare_by_age/2)
       end
     Enum.sort(users, sorter)
   end
@@ -111,6 +115,37 @@ defmodule HOF do
     {:user, _, _, age2} = user2
     age1 < age2
   end
+
+  def invertor(predicate) do
+    fn arg1, arg2 -> not predicate.(arg1, arg2) end
+  end
+
+  def group_users(users) do
+    grouper = fn {:user, _, _, age} ->
+      cond do
+        age <= 14 -> :child
+        age > 14 and age < 18 -> :ten
+        age > 18 and age <= 60 -> :adult
+        true -> :old
+      end
+    end
+
+    Enum.group_by(users, grouper)
+  end
+
+{:reloaded, [HOF]}
+iex(26)> HOF.group_users(users)
+%{
+  child: [{:user, 3, "Helen", 10}, {:user, 4, "Kate", 11}],
+  old: [{:user, 6, "Dima", 65}],
+  ten: [{:user, 1, "Bob", 15}],
+  adult: [
+    {:user, 2, "Bill", 25},
+    {:user, 5, "Yura", 31},
+    {:user, 7, "Yana", 35},
+    {:user, 8, "Diana", 41}
+  ]
+}
 end
 
 
