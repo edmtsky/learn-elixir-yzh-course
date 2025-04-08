@@ -1696,3 +1696,675 @@ for x <- lengths, y <- lengths, z <- lengths, x*x+y*y==z*z, x<y, do: {x, y, z}
 - 2. два предиката
 - 3. элемент тройки
 
+
+
+## Модуль Stream. Ленивые коллекции
+
+Ленивые вычисления - это концепция в функциональном программировании(ФП). Хотя
+эта концепция не так широко используется и не очень то и интуитивна для понимания.
+Принцип очень простой. Есть некие вычисления, которые нужно отложить на потом,
+а не выполняться прямо сейчас. Такое откладывание вычислений до момента их
+востребования может быть особенно полезно когда, таких вычислений может быть
+не одно а несколько. Так чтобы несколько таких вычислений можно было бы как-то
+скомбинировать друг с другом и затем выполнить, именно тогда когда результаты
+их вычислений будут нужны.
+
+Например в таком функциональном языке программирования как хаскель ленивые
+вычисления возведены в абсолют, и применяются по умолчанию везде. Тогда как
+в большинстве других ЯП используются "энергичные" вычисления. Это
+противоположность ленивым - когда код вычислений выполняется сразу на месте.
+
+пример обычных(энергичных) вычислений. (Вычисления идут сразу)
+
+```elixir
+iex()> [1, 2, 3, 4, 5] |>
+...()> Enum.map(fn a-> a * a end) |>
+...()> Enum.zip([:a, :b, :c, :d, :e]) |>
+...()> Enum.filter(fn {a, _b} -> rem(a, 2) !=0 end)
+[{1, :a}, {9, :c}, {25, :e}]
+```
+
+в этом примере
+- по первому списку было 4 прохода.
+- по ходу работы создавались и сохранялись где-то в памяти промежуточные списки
+- активно расходуется и CPU и память
+
+
+пример на ленивых коллекциях
+
+```elixir
+iex(3)> [1, 2, 3, 4, 5] |>
+...(3)> Stream.map(fn a->a*a end) |>
+...(3)> Stream.zip([:a, :b, :c, :d, :e]) |>
+...(3)> Stream.filter(fn {a, _b} -> rem(a, 2) !=0 end)
+#Stream<[
+  enum: #Function<10.91738278/2 in Stream.Reducers.zip_with/2>,
+  funs: [#Function<39.126549445/1 in Stream.filter/2>]
+]>
+```
+
+Результат Stream - это и есть спец структура данных, которая на деле пока еще
+не вычислялась, а только сохранилась в виде некой структуры функций для
+вычисления в будущем по требованию.
+
+Сохранение ленивого вычисления(Stream) в переменную lazy_eveluation
+```elixir
+iex(4)> lazy_eveluation = v()
+#Stream<[
+  enum: #Function<10.91738278/2 in Stream.Reducers.zip_with/2>,
+  funs: [#Function<39.126549445/1 in Stream.filter/2>]
+]>
+```
+
+Вызвать "ленивое" вычисление и получить результат можно так
+
+```elixir
+iex(5)> Enum.to_list(lazy_eveluation)
+[{1, :a}, {9, :c}, {25, :e}]
+```
+
+Как работают ленивые вычисления:
+- по списку делается ровно один проход, а не 4 как в обычном коде.
+- в "ленивых" вычислениях поочередно берутся значения каждого элемента из
+  стартового списка и каждый такой элемент, как значение, поочередно проходит
+  по всей структуре преобразований(функций), внешне заданных через pipe-оперетор,
+  Тогда как в обычных(энергичных) вычислениях в каждой строке кода до оператора
+  pipe сначала делается полное вычисление всех элементов списка, а уже потом
+  результат вычисления передаётся дальше через Pipe в следующее выражение.
+- в итоге для ленивых вычислений нужен ровно один проход, а не 4:
+  - меньше потребление CPU
+  - меньше потребление памяти (не нужно хранить промежуточные списки)
+
+Ленивые вычисления дают ощутимую(заметную) экономию на больших коллекциях.
+
+
+Вот пример разницы на большой коллекции созданной через Range.
+
+```sh
+iex()> 1..10_000_000 |> Enum.map(fn i -> i * i end) |> Enum.take(5)
+# консолько подвисает на несколько секунд пока все 10 лямов не будет вычитано
+[1, 4, 9, 16, 25]
+
+# тоже самое используя Stream и ленивые вычисления - результат мгновенно
+iex()> 1..10_000_000 |> Stream.map(fn i -> i * i end) |> Enum.take(5)
+[1, 4, 9, 16, 25]
+```
+
+Здесь разница в том, что там, где используется Stream.map реально будет обходится
+только первых 5 элементов, а не все 10 лямов. Потому как при создании структуры ленивого вычисления смотрится сразу на всё выражение, и в конце видно что нужно
+только первых 5 элементов. Поэтому все остальные просто отбрасываются и не
+делается лишней работы. А вот в первом примере с Enum.map сначала (до 1го pipe)
+создаётся временный список с 10лямов чисел возведённых в квадрат и уже только
+затем берётся первые 5 из них...
+
+
+Ленивые вычисления можно использовать например и для IO операций(чтения больших
+файлов) При энергичных вычислениях нужно загрузить весь файл, тогда как при
+ленивых будет происходить чтение например построчно, и не надо будет грузить в
+память весь файл.
+Так же и при работе с tcp-сокетом для обработки входящих данных.
+Ленивые коллекции помогут обрабатывать данные сразу по мере поступления, а не
+ожидая пока придёт сразу весь запрос и сохраниться в некий буфер(временную память).
+(другим словами обработка возможна сразу не дожидаясь накопления каких-то "батчей")
+
+
+Практический Пример использования ленивых вычислений(Stream)
+допустим есть текстовый файл-словарь на пару гигабайт.
+и нужно найти самую длинную аббревиатуру.
+(Для этого нужно пройти по каждой строчке)
+
+Пример интеративного написания кода
+1. создал модуль и нужную в нём функцию
+
+lazy.exs
+```elixir
+defmodule Lazy do
+  def get_longest_term(filename) do
+    filename
+  end
+end
+```
+
+Открытваю этот модуль в iex (REPL)
+```sh
+iex lazy.exs
+```
+
+```elixir
+iex(1)> file = "./dictionary.txt"
+"./dictionary.txt"
+
+iex(2)> Lazy.get_longest_term(file)
+"./dictionary.txt"
+```
+
+Реализация на энергичных вычислений
+
+- всё содержимое файла читается в память
+```elixir
+defmodule Lazy do
+  def get_longest_term(filename) do
+    File.read!(filename)
+  end
+end
+```
+
+
+```elixir
+iex(3)> file = "./dictionary.txt"
+"ISO 8601: Date and time format\nMIT: Massachusetts Institute of Technology\nOpenGL: Open Graphics Library\nOSF: Open Software Foundation\nSASL: Simple Authentication and Security Layer\nTLS: Transport Layer Security\nUUID: universally unique identifier\n"
+```
+
+```elixir
+defmodule Lazy do
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")                # +
+  end
+end
+```
+
+
+```elixir
+
+iex(4)> r Lazy
+{:reloaded, [Lazy]}
+iex(5)> Lazy.get_longest_term(file)
+["ISO 8601: Date and time format", "MIT: Massachusetts Institute of Technology",
+ "OpenGL: Open Graphics Library", "OSF: Open Software Foundation",
+ "SASL: Simple Authentication and Security Layer",
+ "TLS: Transport Layer Security", "UUID: universally unique identifier", ""]
+```
+
+```elixir
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")
+    |> Enum.map(fn line -> String.split(line, ":") end)    # +
+  end
+```
+
+```elixir
+iex(6)> r Lazy
+{:reloaded, [Lazy]}
+iex(7)> Lazy.get_longest_term(file)
+[
+  ["ISO 8601", " Date and time format"],
+  ["MIT", " Massachusetts Institute of Technology"],
+  ["OpenGL", " Open Graphics Library"],
+  ["OSF", " Open Software Foundation"],
+  ["SASL", " Simple Authentication and Security Layer"],
+  ["TLS", " Transport Layer Security"],
+  ["UUID", " universally unique identifier"],
+  [""]
+]
+```
+
+```elixir
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")
+    |> Enum.filter(fn line -> line != "" end)        # отбрасываю пустые строки
+    |> Enum.map(fn line -> String.split(line, ":") end)
+    |> Enum.map(fn [term, _] -> term end)            # отбрасываю описание
+  end
+```
+
+```elixir
+iex()> r Lazy
+{:reloaded, [Lazy]}
+
+iex()> Lazy.get_longest_term(file)
+["ISO 8601", "MIT", "OpenGL", "OSF", "SASL", "TLS", "UUID"]
+```
+
+```elixir
+defmodule Lazy do
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")
+    |> Enum.filter(fn line -> line != "" end)
+    |> Enum.map(fn line -> String.split(line, ":") end)
+    |> Enum.map(fn [term, _] -> term end)
+    |> Enum.map(fn term -> {String.length(term), term} end)
+  end
+end
+```
+output
+```elixir
+iex()> Lazy.get_longest_term(file)
+[
+  {8, "ISO 8601"},
+  {3, "MIT"},
+  {6, "OpenGL"},
+  {3, "OSF"},
+  {4, "SASL"},
+  {3, "TLS"},
+  {4, "UUID"}
+]
+```
+
+
+```elixir
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")
+    |> Enum.filter(fn line -> line != "" end)
+    |> Enum.map(fn line -> String.split(line, ":") end)
+    |> Enum.map(fn [term, _] -> term end)
+    |> Enum.map(fn term -> {String.length(term), term} end)
+    |> Enum.max_by(fn {len, term} -> len end)  # получить максимальный
+  end
+```
+
+```elixir
+iex(17)> Lazy.get_longest_term(file)
+{8, "ISO 8601"}
+```
+
+```elixir
+defmodule Lazy do
+  def get_longest_term(filename) do
+    File.read!(filename)
+    |> String.split("\n")
+    |> Enum.filter(fn line -> line != "" end)
+    |> Enum.map(fn line -> String.split(line, ":") end)
+    |> Enum.map(fn [term, _] -> term end)
+    |> Enum.map(fn term -> {String.length(term), term} end)
+    |> Enum.max_by(fn {len, term} -> len end)
+    |> elem(1)
+  end
+end
+```
+output
+```elixir
+iex(19)> Lazy.get_longest_term(file)
+"ISO 8601"
+```
+
+Здесь специально сделано столько много шагов.
+
+### Вариант того же на ленивых чисислениях
+
+```elixir
+ def get_longest_term_lazy(filename) do
+    File.stream!(filename)
+    # разбивать на строки не нужно, это будет делать сам file.stream!
+    |> Stream.filter(fn line -> line != "" end)
+    |> Stream.map(fn line -> String.split(line, ":") end)
+    |> Stream.map(fn [term, _] -> term end)
+    |> Stream.map(fn term -> {String.length(term), term} end)
+    # |> Enum.max_by(fn {len, term} -> len end) # такого в Stream нет
+    # |> elem(1)
+  end
+```
+смотрим что получаем при таком коде
+```elixir
+iex()> r Lazy
+{:reloaded, [Lazy]}
+
+iex(21)> Lazy.get_longest_term_lazy(file)
+#Stream<[
+  enum: %File.Stream{
+    path: "./dictionary.txt",
+    modes: [:raw, :read_ahead, :binary],
+    line_or_bytes: :line,
+    raw: true,
+    node: :nonode@nohost
+  },
+  funs: [#Function<39.126549445/1 in Stream.filter/2>,
+   #Function<49.126549445/1 in Stream.map/2>,
+   #Function<49.126549445/1 in Stream.map/2>,
+   #Function<49.126549445/1 in Stream.map/2>]
+```
+это и есть ленивое вычисление, которое еще не было запущено.
+- enum - это входящие данные для данного ленивого вычисления
+- funs - цепочка функций-обработчиков самого вычисления.
+
+
+```elixir
+  def get_longest_term_lazy(filename) do
+    File.stream!(filename)
+    |> Stream.filter(fn line -> line != "" end)
+    |> Stream.map(fn line -> String.split(line, ":") end)
+    |> Stream.map(fn [term, _] -> term end)
+    |> Enum.map(fn term -> {String.length(term), term} end)
+    |> Enum.max_by(fn {len, term} -> len end)   # стриггерит ленивое вычисление
+    |> elem(1)
+  end
+```
+проверяем
+```elixir
+iex()> Lazy.get_longest_term_lazy(file)
+"ISO 8601"
+```
+
+Здесь второй пример на основе ленивых вычислений может и не даст экономии по
+IO-операциям к диску, но точно даст экономию по памяти, т.к. чтение и обработка
+будет идти построчно, и не надо для этого читать весь файл до выполнения
+вычисления как в первом примере. То есть этот пример вполне пригоден для чтения
+очень больших файлов.
+
+
+### Модуль Stream Безконечные коллекции.
+
+В модуле Stream есть 5 функций для генерации безконечных коллекций.
+- cycle
+- iterate
+- unfold
+- resource
+- repeated
+
+
+### Stream.cycle
+позволяет из заданной коллекции получить повторяющуюся любой нужной длинны
+```elixir
+iex()> Stream.cycle([1,2,3,4]) |> Enum.take(20)
+[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
+```
+
+Пример практического использования
+- нужно сгенерить Html-код рисующий некие таблицы с чередующимся фоном.
+
+например берём коллекцию из 2х элементов белый-серый:
+```elixir
+Stream.cycle(["white", "gray"])
+|> Enum.take(5)  #             при отрисовке берём нужное кол-во рядов.
+```
+
+```elixir
+iex()> data = Lazy.test_data
+["row 1", "row 2", "row 3", "row 4", "row 5"]
+```
+
+
+```elixir
+  def test_data do
+    [ "row 1", "row 2", "row 3", "row 4", "row 5" ]
+  end
+
+  def make_table(data) do
+    rows =
+      Stream.cycle(["white", "gray"])
+      |> Stream.zip(data)
+      |> Enum.map(fn {bg, row} -> "<tr><td class='#{bg}'>#{row}</td></tr>" end)
+      |> Enum.join("\n")
+
+    "<table>#{rows}</table>"
+  end
+```
+
+```elixir
+iex()> r Lazy
+{:reloaded, [Lazy]}
+
+iex()> Lazy.make_table(data)
+"<table><tr><td class='white'>row 1</td><tr>\n<tr><td class='gray'>row 2</td><tr>\n<tr><td class='white'>row 3</td><tr>\n<tr><td class='gray'>row 4</td><tr>\n<tr><td class='white'>row 5</td><tr></table>"
+
+# вывести тоже самое в бодее удобочитаемом виде
+iex()> Lazy.make_table(data) |> IO.puts
+
+<table><tr><td class='white'>row 1</td></tr>
+<tr><td class='gray'>row 2</td></tr>
+<tr><td class='white'>row 3</td></tr>
+<tr><td class='gray'>row 4</td></tr>
+<tr><td class='white'>row 5</td></tr></table>
+:ok
+```
+
+> Делаем две колонки для генерируемой таблицы
+
+```elixir
+  def test_data do
+    [
+      {"Bob", 24},
+      {"Bill", 25},
+      {"Kate", 26},
+      {"Helen", 34},
+      {"Yury", 16}
+    ]
+  end
+
+  def make_table(data) do
+    rows =
+      Stream.cycle(["white", "gray"])
+      |> Stream.zip(data)
+      |> Enum.map(fn {bg, {name, age}} ->
+        "<tr class='#{bg}'><td>#{name}</td><td>#{age}</td></tr>"
+      end)
+      |> Enum.join("\n")
+
+    "<table>#{rows}</table>"
+  end
+```
+т.к. данные изменились нужно сразу их перечитать и уже потом генерить
+```elixir
+iex()> data = Lazy.test_data
+[{"Bob", 24}, {"Bill", 25}, {"Kate", 26}, {"Helen", 34}, {"Yury", 16}]
+
+iex()> Lazy.make_table(data) |> IO.puts
+<table><tr class='white'><td>Bob</td><td>24</td><tr>
+<tr class='gray'><td>Bill</td><td>25</td><tr>
+<tr class='white'><td>Kate</td><td>26</td><tr>
+<tr class='gray'><td>Helen</td><td>34</td><tr>
+<tr class='white'><td>Yury</td><td>16</td><tr></table>
+:ok
+```
+
+Таким образом используя "ленивый" генератор безконечных коллекций(Stream.cycle)
+реализовали чередующийся фон у html-таблицы
+
+
+
+### Stream.iterate
+
+Stream.iterate принимает
+- начальное значение
+- функцию генерации последующего значения(использующую последнее сгенеренное знач)
+
+пример генерации степени двойки
+```elixir
+iex()> Stream.iterate(1, fn i -> i * 2 end)
+#Function<64.126549445/2 in Stream.unfold/2>
+
+iex()> Stream.iterate(1, fn i -> i * 2 end) |> Enum.take(10)
+[1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+
+iex()> Stream.iterate(1, fn i -> i * 2 end) |> Enum.take(20)
+[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768,
+ 65536, 131072, 262144, 524288]
+```
+такой код позволяет получить любое нужное количество степеней двойки
+
+
+### Практический пример использования Stream.iterate номерация рядов в html-таблице.
+
+```elixir
+  def make_table(data) do
+    css_styles = Stream.cycle(["white", "gray"])
+    iterator = Stream.itarate(1, fn i -> i + 1 end)
+
+    rows =
+      Stream.zip(css_styles, iterator)
+      |> Stream.zip(data)
+    #   |> Enum.map(fn {bg, {name, age}} ->
+    #     "<tr class='#{bg}'><td>#{name}</td><td>#{age}</td><tr>"
+    #   end)
+    #   |> Enum.join("\n")
+    #
+    # "<table>#{rows}</table>"
+    rows
+  end
+```
+
+```elixir
+iex(19)> Lazy.make_table(data) |> Enum.take(5)
+[
+  #{{css_style, index},  {name, age}}
+  {{"white", 1}, {"Bob", 24}},
+  {{"gray", 2}, {"Bill", 25}},
+  {{"white", 3}, {"Kate", 26}},
+  {{"gray", 4}, {"Helen", 34}},
+  {{"white", 5}, {"Yury", 16}}
+]
+```
+
+
+```elixir
+  def make_table(data) do
+    css_styles = Stream.cycle(["white", "gray"])    # (1)
+    iterator = Stream.iterate(1, fn i -> i + 1 end) # (2)
+
+    rows =
+      Stream.zip(css_styles, iterator)
+      |> Stream.zip(data)
+      # {{css_style, index},  {name, age}}
+      |> Enum.map(fn {{css_style, index}, {name, age}} ->
+        "<tr class='#{css_style}'><td>#{index}</td><td>#{name}</td><td>#{age}</td><tr>"
+      end)
+      |> Enum.join("\n")
+
+    "<table>#{rows}</table>"
+  end
+```
+- 1. генерация безконечной коллекции с повторяющимися css-стилями (цвет фона)
+- 2. генерация безконечной коллекции с номерами(index) строк в таблице
+
+```elixir
+iex(21)> Lazy.make_table(data) |> IO.puts()
+<table><tr class='white'><td>1</td><td>Bob</td><td>24</td><tr>
+<tr class='gray'><td>2</td><td>Bill</td><td>25</td><tr>
+<tr class='white'><td>3</td><td>Kate</td><td>26</td><tr>
+<tr class='gray'><td>4</td><td>Helen</td><td>34</td><tr>
+<tr class='white'><td>5</td><td>Yury</td><td>16</td><tr></table>
+:ok
+```
+
+
+
+### Stream.unfold
+
+fold/reduce collection  -> single_value
+unfold single_value     -> collection
+  - initial_state
+  - unfolder -> fn state -> {new_value, new_state}
+
+Эта функция генерирует безконечную коллекцию на основе начального значения state
+и unfolder функции (разворачивающей функции). При этом unfolder функция на каждой
+итерации берёт текущее состояние и на его основе генерит новое значение и
+видозменяет текущее состояние, которое будет передано в эту же функцию на
+следующей итерации.
+
+По простому говоря Stream.unfold это улучшенный аналог Stream.iterate
+unfold в отличии от iterate на вход принимает state, тогда как iterate принимает
+прошлое сгенеренное значение. То есть по сути unfold тот же iterate но с
+отдельным состоянием, используемым для генерации новых значений.
+
+
+
+### Практический пример использования Stream.unfold для генерации html-таблиц
+
+Сначала просто разбирёмся как работает Stream.unfold
+Теперь нам нужно в стейте хранить чётность текущего ряда и его порядковый индекс
+```elixir
+  def make_table_2(data) do
+    initial_state = {true, 1}
+    unfolder = fn {odd, index} ->
+      value = %{odd: odd, index: index}
+      new_state = {not odd, index +1}
+      {value, new_state}
+    end
+
+    Stream.unfold(initial_state, unfolder)
+  end
+```
+```elixir
+iex()> r Lazy
+{:reloaded, [Lazy]}
+
+iex()> Lazy.make_table_2()
+#Function<64.126549445/2 in Stream.unfold/2>           < ленивое вычисление
+
+
+iex()> Lazy.make_table_2() |> Enum.take(10)
+[
+  %{index: 1, odd: true},
+  %{index: 2, odd: false},
+  %{index: 3, odd: true},
+  %{index: 4, odd: false},
+  %{index: 5, odd: true},
+  %{index: 6, odd: false},
+  %{index: 7, odd: true},
+  %{index: 8, odd: false},
+  %{index: 9, odd: true},
+  %{index: 10, odd: false}
+]
+```
+результатом генерации - это коллекция, где каждый элемент этой коллекции это
+Map-а(`%{}`) из двух пар ключ-значение с индексом и чётностью строки(для цвета)
+
+
+
+Преобразуем код в генерацию html-таблицы
+
+```elixir
+  def make_table_2(users) do
+    initial_state = {true, 1}
+
+    unfolder = fn {odd, index} ->
+      value = %{odd: odd, index: index}
+      new_state = {not odd, index + 1}
+      {value, new_state}
+    end
+
+    rows =
+      Stream.unfold(initial_state, unfolder)
+      |> Stream.zip(users)
+      |> Enum.map(fn {state, user} ->
+        css_style = if state.odd, do: "white", else: "gray"
+        index = state.index
+        {name, age} = user
+
+        "<tr class='#{css_style}'><td>#{index}</td><td>#{name}</td><td>#{age}</td><tr>"
+      end)
+      |> Enum.join("\n")
+
+    "<table>#{rows}</table>"
+  end
+```
+
+
+```elixir
+iex()> r Lazy
+{:reloaded, [Lazy]}
+
+iex()> users = Lazy.test_data
+[{"Bob", 24}, {"Bill", 25}, {"Kate", 26}, {"Helen", 34}, {"Yury", 16}]
+
+iex()> Lazy.make_table_2(users) |> IO.puts()
+<table><tr class='white'><td>1</td><td>Bob</td><td>24</td><tr>
+<tr class='gray'><td>2</td><td>Bill</td><td>25</td><tr>
+<tr class='white'><td>3</td><td>Kate</td><td>26</td><tr>
+<tr class='gray'><td>4</td><td>Helen</td><td>34</td><tr>
+<tr class='white'><td>5</td><td>Yury</td><td>16</td><tr></table>
+:ok
+```
+
+
+
+00:20 концепция ленивых вычислений
+01:30 конкретные примеры обычного и ленивого вычисления
+06:04 простой пример явного преимущества ленивых вычислений 1M Range
+08:37 пример сравнения разных типов вычислений на примере чтения файла.
+10:27 первый вариант реализации на энергичных вычислениях
+13:55 второй вариант того же на ленивых вычислениях
+15:50 модуль Stream функции для создания безконечных коллекций.
+16:30 Stream.cycle и пример использования для генерации html-код для таблиц
+21:07 Делаем две колонки для генерируемой таблицы
+23:20 Stream.iterate пример генерации степеней двойки.
+24:24 Stream.iterate пример генерации индексов строк для html-таблицы
+28:04 Stream.unfold описание что это и как работает.
+29:48 Stream.unfold пример использования для генерации html-таблиц
+34:34 Домашнее задание 6го урока.
+
+
