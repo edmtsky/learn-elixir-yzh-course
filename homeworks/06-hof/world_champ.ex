@@ -1,5 +1,4 @@
 defmodule WorldChamp do
-
   def sample_champ() do
     [
       {
@@ -72,16 +71,64 @@ defmodule WorldChamp do
 
 
   def get_stat(champ) do
-    # TODO add your implementation
+    # {num_teams, num_players, avg_age, avg_rating}
+    initial_state = {0, 0, 0, 0}
+
+    totals =
+      champ
+      |> Enum.reduce(initial_state, fn team_item, acc ->
+        {:team, _name, players} = team_item
+        {num_teams, total_num_players, total_age, total_rating} = acc
+
+        team_stats =
+          players
+          |> Enum.reduce({0, 0, 0}, fn player_item, per_team_acc ->
+            {:player, _name, age, rating, _health} = player_item
+            {num_players, sum_age, sum_rating} = per_team_acc
+            {num_players + 1, sum_age + age, sum_rating + rating}
+          end)
+
+        {team_num_players, team_sum_age, team_sum_rating} = team_stats
+
+        {
+          num_teams + 1,
+          total_num_players + team_num_players,
+          total_age + team_sum_age,
+          total_rating + team_sum_rating
+        }
+      end)
+
+    {num_teams, total_num_players, total_age, total_rating} = totals
+    avg_age = total_age / total_num_players
+    avg_rating = total_rating / total_num_players
+
+    {num_teams, total_num_players, avg_age, avg_rating}
   end
 
-
   def examine_champ(champ) do
-    # TODO add your implementation
+    champ
+    |> Enum.map(&examine_team/1)
+    |> Enum.filter(fn {:team, _name, players} -> length(players) > 5 end)
+  end
+
+  def examine_team({:team, name, players}) do
+    healthy_players =
+      players
+      |> Enum.filter(fn player_item ->
+        {:player, _name, _age, _rating, health} = player_item
+        health >= 50
+      end)
+
+    {:team, name, healthy_players}
   end
 
   def make_pairs(team1, team2) do
-    # TODO add your implementation
-  end
+    {:team, _name, players1} = team1
+    {:team, _name, players2} = team2
 
+    for {:player, name1, _, rating1, _} <- players1,
+        {:player, name2, _, rating2, _} <- players2,
+        rating1 + rating2 > 600,
+        do: {name1, name2}
+  end
 end
