@@ -399,10 +399,11 @@ defmodule HOF do
 
   def get_avg_age(users) do
     reducer =
+      #  item                 acc
       fn {:user, _, _, age}, {num_users, total_age} ->
-        {num_users + 1, total_age + age}
+        {num_users + 1, total_age + age} # new acc
       end
-
+    # {0, 0} - initial state for reducer
     Enum.reduce(users, {0, 0}, reducer)
   end
 ```
