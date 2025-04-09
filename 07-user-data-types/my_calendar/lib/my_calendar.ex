@@ -45,4 +45,29 @@ defmodule MyCalendar do
 
     M.Event.new("Weekly Team Meeting", place, time, participants, agenda)
   end
+
+  def sample_event_struct() do
+    alias MyCalendar.Model.EventStruct, as: S
+
+    place = %S.Place{office: "Office #1", room: "#Room 42"}
+
+    time = ~U[2025-04-09 17:17:00Z]
+    participants = [
+      %S.Participant{name: "Bob", role: :project_manager},
+      %S.Participant{name: "Petya", role: :developer},
+      %S.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %S.Topic{title: "Interview", description: "candidat for developer position"},
+      %S.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+
+    %S.Event{
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: participants,
+      agenda: agenda
+    }
+  end
 end
