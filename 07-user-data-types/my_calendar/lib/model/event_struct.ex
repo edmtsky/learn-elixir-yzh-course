@@ -51,6 +51,8 @@ defmodule MyCalendar.Model.EventStruct do
   end
 
   defmodule Event do
+    alias MyCalendar.Model.CalendarItem
+
     @enforce_keys [:title, :place, :time]
 
     defstruct [
@@ -74,11 +76,22 @@ defmodule MyCalendar.Model.EventStruct do
           %Event{participants: participants} = event,
           %Participant{} = new_participant
         ) do
-      participants = Enum.filter(participants, fn p ->
-        p.name != new_participant.name
-      end)
+      participants =
+        Enum.filter(participants, fn p ->
+          p.name != new_participant.name
+        end)
+
       participants = [new_participant | participants]
       %Event{event | participants: participants}
+    end
+
+    # defimpl CalendarItem, for: MyCalendar.Model.EventStruct.Event do
+    defimpl CalendarItem do
+      @spec get_title(CalendarItem.t()) :: String.t()
+      def get_title(event), do: event.title
+
+      @spec get_time(CalendarItem.t()) :: DateTime.t()
+      def get_time(event), do: event.time
     end
   end
 end

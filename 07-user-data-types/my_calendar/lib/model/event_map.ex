@@ -1,5 +1,4 @@
 defmodule MyCalendar.Model.EventMap do
-
   defmodule Place do
     def new(office, room) do
       %{
