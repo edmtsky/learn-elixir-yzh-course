@@ -1,4 +1,4 @@
-## 07.06 Протокол
+## 07.05 Протокол, практика
 
 Вводная про протоколы
 
@@ -771,5 +771,418 @@ Interview at 2025-04-09T15:00:00Z
 таким образом наш календарь умеет работать с событиями реализованными на
 разных структурах данных, от кортежей, и словарей до структур и типизировнных
 структур.
+
+
+
+## 07.06 Протокол, теория
+
+Есть такой подход когда практику делают до теории.
+Изучающие сталкиваются с реальными примерами, проблемами и лучше формируют
+понимание, чем если бы сначала была только чистая теория, не подкреплённая
+никакими практическими примерами.
+
+
+смотрим на протоколы с точки зрения теории.
+сначала быстро пробежимся по стандартным протоколам встроенным в язык
+
+
+Стандартные протоколы языка Elixir
+(встроенные в язык протоколы:)
+
+- Enumerable
+- Collectable
+- Inspect
+- List.Chars
+- String.Chars
+
+
+### Enumerable
+самый главный, полезный и наиболее часто используемый протокол
+этот протокол про то как разобрать некую коллекцию на отдельные элементы
+
+Все коллекции реализут протокл Enumerable.
+Благодаря ему функции из Enum и Stream могут работать с
+
+- List
+- Keyword List
+- Map
+- MapSet  (реализация структуры даных Set поверх Map(Своваря)
+- Range
+- String
+
+есть и другие модули других типов данных реализующих протокол Enumerable
+но здесь они опущены
+
+
+#### Функции протокола Enumerable
+
+- count/1
+- memeber?/2
+- reduce/3
+- slice/1
+
+это базовые функции которые должны быть опеределены в модуле реализующем этот
+протокол. На основе этих фукнций работает все остальные функции из модуля Enum.
+То есть создал свой модуль-тип. указал в нём что реализуешь данный протокол
+и реализовал в нём все эти 4 функции и после этого со своми типом можно работать
+используя все стандартные функции модуля Enum:
+
+
+#### Прикладыне Функции модуля Enum
+
+- map, filter, reduce
+- all?, any?
+- sort, find
+- drop_while, dedup_by
+- chunk_by, chunk_while
+- другие
+
+все они реализуются через 4 функции протокола Enumerable
+
+
+В теории достаточно только одной функции `reduce`
+Всё остальное можно реализовать через эту ф-ю
+Но на практике это не эффективно.
+(например для ф-и memeber - проверяющей явл-ся ли элемент членом коллекции.
+для списка нужно обойти всю коллекцию, а для мапы просто обратиться по ключу)
+
+
+
+Enumerable.reduce - это не тоже самое что Enum.reduce
+Там более сложная реализация, где можно управлять итерацией:
+- останавливать, возобновлять прерывать
+
+
+
+### Протокол Collectable
+этот протокол про то как из элементов собрать коллекцию(антогонист Enumerable)
+как добавить эл-т в коллекцию ( одна функцию добавления нового эл-та)
+позволяет преобразовать одну коллекцию в другую
+
+- используется гораздо реже чем Enumerable
+- обычно исп-ся для того чтобы иметь не просто список а некую другую коллекцию
+  (модуль Enum На вход принимает разные коллекции, но на выход отдаёт всегда
+  список(List), если же нужен не List а что-то другое - используй этот протокол.
+
+Enum.into/1 - функция использующая протокол Collectable, для добавления нового
+эл-та в кастомную(например не List) коллекцию.
+
+пример использования Collectable
+- input - Map и нужен output Тоже Map
+
+```elixir
+iex> my_map = %{a: 1, b: 2}
+%{a: 1, b: 2}
+
+iex> Enum.map(my_map,
+...> fn {k, v} -> {k, v + 1} end)
+[a: 2, b: 3]                                         # Keyword List (SyntSugar)
+# [{:a, 2}, {:b, 3}]
+
+iex> Enum.map(my_map,
+...> fn {k, v} -> {k, v + 1} end) |> Enum.into(%{})
+%{a: 2, b: 3}                                        # Map
+```
+
+тоже самое через конструктор списков (comprehension)
+```elixir
+iex> for {k, v} <- m, do: {k, v+1}
+[a: 43, b: 101]                                               # Keyword list
+
+# тот самый into - чтобы указать "куда" собирать результат
+iex(6)> for {k, v} <- m, into: %{}, do: {k, v + 1}
+#                        ^^^^^^^^^^
+%{a: 43, b: 101}                                              # Map
+```
+
+И благодаря тому, что все коллекции реализуют протокол то можно собирать(into)
+результат в разные коллекции (в том числе и через построитель списков)
+(Хотя на практике обычно это имеет смысл чаще всего только для Map)
+
+
+### Протокол Inspect
+
+в консоли iex любые даже самые сложные значения выглядят очень читаемо и
+"красиво" отформатировано, с подсветкой синтаксиса.
+
+
+```elixir
+iex> calendar = MyCalendar.sample_calendar()
+%MyCalendar.Model.Calendar{items: [...]}
+```
+
+Вся эта красота благодаря протоколу Inspect.
+Этот протокол можно  реализовать и для своих типов данных,
+и есть настройки отображения
+
+
+Это делает функция Kernel.inspect/2
+все типы данных в Эликсир реализуют протокол `Inspect`
+Каждый тип сам описывает, как он должен быть представлен.
+
+Пример настройки отображения
+
+Kernel.inspect
+```elixir
+inspect(event)
+inspect(event, pretty: true)
+inspect(event, pretty: true, limit: 3)
+inspect(event, pretty: true, limit: 3, width: 10)
+```
+
+```elixir
+iex> event = v()
+%MyCalendar.Model.EventTypedStruct.Event{
+....
+}
+iex> inspect(event, pretty: true) |> IO.puts()
+```
+
+Как посмотреть доку по этой функции:
+```elixir
+iex> h inspect/2
+iex> h Inspect.Opts    # посмотреть на возможные настройки отображения
+```
+
+
+
+#### inspect - часто применяется при логгировании:
+
+```elixir
+require Logger  # require - для вызова макросов из модуля Logger
+Logger.info("my event is #{inspect(event)}")
+Logger.info("my event is #{inspect(event, pretty: true, width: 10)}")
+```
+
+вот так работать не будет
+```elixir
+Logger.info("my event is #{event}")
+```
+т.к. при интерполяции строк происходит попытка преобразовать объект к строке
+а если "обьект"(тип) не реализует String.Chars то в runtime будет ошибка.
+
+и с Map это тоже не будет работать и выдаст ошибку (без inspect)
+```elixir
+Logger.info("my event is #{%{a: 42}}")             # error
+Logger.info("my event is #{inspect(%{a: 42})}")    # ok
+```
+
+Протокол Insect работает прямо из коробки
+но если нужно например фильтровать свои данные так, чтобы в логи не попадали
+приватные данные (пароли, ключи, сертификаты) то нужно переопределить
+дефолтную реализацию этого протоколаж
+
+
+Пример:
+```elixir
+# Inspect
+defmodule AuthData do
+    defstruct [:login, :password]
+end
+```
+
+```elixir
+iex> ad = %AuthData{login: "Bob", password: 123}
+%AuthData{login: "Bob", password: 123}
+
+iex> require Logger
+Logger
+iex> Logger.info("data is #{inspect(ad)}")
+
+14:03:32.656 [info] data is %AuthData{login: "Bob", password: 123}
+#                                                             ^^^
+:ok
+```
+делаем так чтобы пароль скрывался и в консоли и в логах
+```elixir
+# Inspect
+defmodule AuthData do
+  @derive {Inspect, except: [:password]}     # исключение что не показывать
+  defstruct [:login, :password]
+end
+```
+
+```elixir
+iex> r AuthData
+{:reloaded, [AuthData, Inspect.AuthData]}
+
+iex> ad = %AuthData{login: "Bob", password: 123}
+#AuthData<login: "Bob", ...>
+iex> require Logger
+Logger
+iex> Logger.info("data is #{inspect(ad)}")
+14:06:10.386 [info] data is #AuthData<login: "Bob", ...>
+:ok
+```
+
+
+#### Пример написания собственной реализации отображения данных своей структуры
+
+```elixir
+defmodule AuthData do
+  # @derive {Inspect, except: [:password]}
+  defstruct [:login, :password]
+    defimpl Inspect do
+  end
+
+  defimpl Inspect do
+    alias Inspect.Algebra, as: A  # спец структура с которой работает п. Inspect
+
+    def inspect(data, opts) do
+      A.concat("AuthData<", A.to_doc(data.login, opts), ">")
+    end
+  end
+end
+```
+
+проверяем (теперь представление полностью другое - как мы его и реализовали)
+```elixir
+recompile
+{:reloaded, [AuthData, Inspect.AuthData]}
+
+iex> ad
+AuthData<"Bob">
+
+iex> Logger.info("data is #{inspect(ad)}")
+14:15:53.598 [info] data is AuthData<"Bob">
+:ok
+```
+
+
+
+#### String.Chars & List.Chars
+
+- это про то как отображать данные в виде строки(toString для своих данных)
+
+- String.Chars - конвертирует данные в строку в двойных кавычках,
+  (бинарные данные в формате UTF8)
+
+- List.Chars - конвертирует данные в строку в одиночнных кавычках
+  (то есть в списко UnicodeCodepoints)
+
+чаще всего используется String.Chars
+
+Эти два протокола в отличии от Inspect реализованы не для всех типов в Elixir.
+то есть есть стандартные структуры данных Elixr для которых этот протокол
+не реализован, а значит из коробки их конвертировать в строку нельзя.
+
+```elixir
+iex> "#{42}"
+"42"
+
+iex> m = %{a: 42}      # создадим Map(Словарь)
+%{a: 42}
+
+# попытка преобразовать в строку
+iex> "#{m}"
+** (Protocol.UndefinedError) protocol String.Chars not implemented for type Map
+
+Got value:
+
+    %{a: 42}
+
+    (elixir 1.18.3) lib/string/chars.ex:3: String.Chars.impl_for!/1
+    (elixir 1.18.3) lib/string/chars.ex:22: String.Chars.to_string/1
+    iex:17: (file)
+```
+эта ошибка говорит о том, что протокол String.Chars не реализован для Map
+
+```elixir
+iex> ad              # своя собствення структура данных
+AuthData<"Bob">
+
+# по пытка сделать "toString"
+iex> "#{ad}"
+** (Protocol.UndefinedError) protocol String.Chars not implemented for type AuthData (a struct)
+
+Got value:
+
+    AuthData<"Bob">
+
+    (elixir 1.18.3) lib/string/chars.ex:3: String.Chars.impl_for!/1
+    (elixir 1.18.3) lib/string/chars.ex:22: String.Chars.to_string/1
+    iex:18: (file)
+```
+чтобы это работало нужно в своей структуре данных реализовать протокол String.Chars
+
+```elixir
+defmodule AuthData do
+  defstruct [:login, :password]
+    defimpl Inspect do
+  end
+
+  defimpl Inspect do
+    # ...
+  end
+
+  defimpl String.Chars do          # реализация протокола
+    def to_string(data) do
+      "AuthData, login: ${data.login}"
+    end
+  end
+end
+```
+
+```elixir
+iex> ad
+AuthData<"Bob">
+iex> "#{ad}"
+"AuthData, login: ${data.login}"
+```
+
+
+```elixir
+defmodule AuthData do
+  # ...
+end
+
+# вне модуля реализация протокода для словарей
+
+defimpl String.Chars, for: Map do
+  def to_string(data) do
+    "Map of size: #{map_size(data)}"
+  end
+end
+```
+
+```elixir
+iex> c "auth_data.ex"
+[AuthData, Inspect.AuthData, String.Chars.AuthData, String.Chars.Map]
+
+iex> m
+%{a: 42}
+
+iex> "#{m}"
+"Map of size: 1"
+```
+
+
+#### Protocol vs Behaviour
+
+- Protocol и Behaviour делают одно и тоже
+  (формально - они оба реализуют особый вид полиморфизма, который позволяет
+  неким модулям и функциям единообразно работать с разными реализациями и
+  разными типами данных.
+
+(зачем два?)
+
+- Protocol более гибкий, Behaviour ограниченный
+  Behaviour можно опеределить только внутри своего модуля, для которого и
+  описывается его реализация, то есть нельзя взять и описать реализацию где-то
+  вне самого модуля, т.е. нельзя задать реализацию в своём модуле для чужого
+  тогда как с протоколами так можно.
+
+Зачем Behaviour? если есть Protocol?
+
+> Protocol vs Behaviour
+- Behaviour нужен для совместимости с Эрланг
+- Эликсир во многом опирается на код Эрланга
+- А код Эрланга требует Behaviour.
+
+Если работать только на уровне фреймворков, и не опускаться ниже на уровень
+OTP, многопоточку и GenServer или глубже на уровень языка Эрланг, то можно
+вообще не сталкиваться с Behaviour и не знать про него. Но когда требуется
+реализовать какие-то низкоуровневые вещи без этой вещи никак не обойтись.
+
 
 
