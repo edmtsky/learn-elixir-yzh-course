@@ -5,7 +5,7 @@
   - Моделирование используя кортежи и списки.
 - 07.02 Использование Map
 - 07.03 Использование Struct
-- 07.04 Struct с указанием типов
+- 07.04 Struct с указанием типов (Typed Struct)
 - 07.05 Алгебраические типы данных
 - 07.06 Протокол
 - 07.07 Record
@@ -1727,23 +1727,1233 @@ add_participant и replace_participant
 стандартные вещи из него.
 
 
-00:25 что такое Struct
-04:48 как задать значение по умолчанию для атрибутов Struct
-07:37 @enforce keys обязательность аттрибутов структуры
-09:20 Struct - абстракция времени компиляции.
-10:20 Map.from_sturct - превратить структуру в map
-10:48 изучаем значение структуры и словара через инспекцию(i)
-11:10 дописываем остальные части модели на струтурах
-14:00 пишем sample_event_struct
-19:02 смотрим на получившийся код модели и создание сущности event
-19:00 модификация event-а через уже известные get_in, put_in, update_in
-20:15 выход на то что по умолчанию ф-и get_in/put_in не работают с динамич. путями.
-22:46 задаёмся вопросом что такое Behaviour, Понятие Behaviour и Protocol
-23:48 Зачем два Behaviour и Protocol и чем они отличаются?
-24:50 Знакомство с Behaviour, что это такое и для чего.
-27:14 реализуем Access Behaviour для своей структуры Place
-36:30 оцениваем перспективу реализации Behaviour для своей структуры.
-37:57 реализация кастомной функции add_participant
-41:43 раализация replace_participant
-45:55 Подведение итогов по рассмотренным способам моделирования предметной области
-48:05 Новый уровень абстракции Смеха из либы Ecto. Немного про веб-проекты
+
+
+## 07.04 Struct с указанием типов (Typed Struct)
+
+Моделируем календарное событие используя структуры с указанием типов
+Эликсир - язык частично(опционально) поддерживающий статическую типизацию.
+То есть статит.-ю типизации можно использоваться, а можно и не использовать.
+
+Обычно во многих случаях статическая типизация полезна:
+- позволяет исключить определённый класс ошибок
+  еще на этапе компиляции, так чтобы они не вылезли в рантайме (в проде).
+- даёт компилятору больше инфы для оптимизации кода
+  пока это не случай эликсира, но для большинства языков со статической типизацией
+  эта актуально.
+- описание типов в коде улучшает читаемость кода (документируемость)
+
+Эликсировские интсрументы для статической типизации
+- Gradual Set-Threoretic Types - это про типы основанные на теории множеств
+  gradual - "постепенно внедряемые". Автор языка - Jose Valim, подключил к этому
+  делу специалистов в системах типов и разработке компиляторов, глубоко понимающих
+  данную тему. С их помощью была сначала разработана теоритическая модель, и
+  на лето 2024 было начато ей внедрение. В версии 1.17 уже введены некие эл-ты
+  этой новой системы типов, которые можно использовать в своём коде.
+- Dialyzer - инструмент для статического анализа. Создан еще в 1990хх годах для
+  Erlang-а, используется как отдельный от компилятора самостоятельный иснтрумент
+
+статический анализатор кода - инструмент который на основе исходников ищет в
+коде какие-то косяки, проблемы и баги. Например вызов не существующих функций,
+не досягаемых блоков кода. Так же он анализирует типы и проверяет соответствие
+типов. Если типы не описаны пытается их сам как-то вывести автоматически. Но
+если разработчики в сиходниках явно описывают используемые типы, то его работа
+во многом упрощается и даёт более стабильный и надежный результат проверок.
+
+Dialyzer расшифровка:
+DIscrepancy AnalYZer for ERlang programs
+
+Изначально Dialyzer был создан специально для Эрланга, и напрямую с Эликсиром
+не работает, но есть библиотека, через которую его можно использовать с Эликсиром.
+
+### Что будем делать в этом уроке
+
+- опишим модель нашей предметной области с помощью структур, но к этим струтурам
+добавим описание типов и познакомимся с работой Dialyzer и где он полезен.
+
+для наглядности создадим отдельный новый файл event_struct убрав отдуда код
+который писали для реализации Access-behaviour.
+
+./lib/model/event_typed_struct.ex
+```elixir
+defmodule MyCalendar.Model.EventTypedStruct do
+  defmodule Place do
+    @enforce_keys [:office, :room]
+
+    defstruct [:office, :room]
+  end
+
+  defmodule Participant do
+    @enforce_keys [:name, :role]
+
+    defstruct [:name, :role]
+  end
+
+  defmodule Topic do
+    @enforce_keys [:title]
+
+    defstruct [
+      :title,
+      :description,
+      {:priority, :medium}
+    ]
+  end
+
+  defmodule Event do
+    @enforce_keys [:title, :place, :time]
+
+    defstruct [
+      :title,
+      :place,
+      :time,
+      {:participants, []},
+      {:agenda, []}
+    ]
+  end
+end
+```
+
+Тепень начинаем прописывать типы для Dialyzer:
+у нас и так ключи полей дублируются в @enforce_keys и нужно их дублировать еще раз
+для типов.
+
+создаём тип с именем t (это такое соглашение в стандартной библиотеки Эликсир
+вот примеры: String.t() DateTime.t(), Regex.t()
+
+```sh
+  String.t()
+# ^1     ^2
+```
+
+
+- 1. Внутри модуля описываем структуру
+- 2. к этой структуре мы описываем тип, давая ему имя `t`
+  тип - это просто структура в виде обычной Map где описаны типы всех полей
+  данной структуры.
+
+
+```elixir
+defmodule MyCalendar.Model.EventTypedStruct do
+  defmodule Place do
+    @type t() :: %Place{                # 1 t - имя типа по соглашению
+            office: String.t(),         # 2 имя поля и её тип
+            role: String.t(),           # 3 имя второго поля и его тип
+          }
+    @enforce_keys [:office, :room]
+
+    defstruct [:office, :room]
+  end
+  # ...
+end
+```
+
+Как видим по факту мы здесь 3 раза дублируем одно и тоже перечисление полей
+описываемой структуры. Увы так сложилось по историческим причинам языка
+
+> TypedStruct
+
+Вообще эта проблема дублирования кода описания типов полей структур решается
+через стороннюю библиотеку TypedStruct. Эта либа позволяет описывать ключи
+(поля структуры) через макросы, где можно сразу указывать и имя ключа и его тип
+и значение по умолчанию. Ну и естественно под коптом эти макросы раскрываются в
+код описаный в примере выше.
+
+В большинстве эликсир-проектов используется либа `Ecto` (работа с базами данных)
+(Даже если это не веб-проект то очень часто всё равно используется ecto)
+В ecto есть абстракции повех структур называемые "схема". Так вот "схемы" тоже
+решают эту проблему дублирования описания типов структур, примерно таким же
+образом как либа TypedStruct.
+
+В этом курсе мы изучаем базу именно самого языка Эликсир, без всяких там
+сторонних библиотек упрощающих жизнь. Поэтому пока придётся использовать такой
+"мокрый" дублирующийся бойлерплейт код для описания обязательности ключей(полей)
+и их типов.
+
+
+```elixir
+defmodule MyCalendar.Model.EventTypedStruct do
+  defmodule Place do
+    @type t() :: %__MODULE__{   # << это макрос имени структуры модуля
+            office: String.t(),
+            role: String.t(),
+          }
+    @enforce_keys [:office, :room]
+
+    defstruct [:office, :room]
+  end
+  # ...
+end
+```
+
+`__MODULE__` - Это макрос, раскрывающийся в имя модуля внутри которого он задан.
+он особенно полезен, когда нутри модуля несколько раз упоминается его имя:
+
+```elixir
+  defmodule Event do
+    #       ^^^^^
+    @enforce_keys [:title, :place, :time]
+
+    defstruct [...]
+
+    def add_participant(
+          %Event{participants: participants} = event,
+          #^^^^^
+          %Participant{} = participant
+        ) do
+      participants = [participant | participants]
+      %Event{event | participants: participants}
+      #^^^^^
+    end
+
+    # aka update by name
+    def replace_participant(
+          %Event{participants: participants} = event,
+          #^^^^^
+          %Participant{} = new_participant
+        ) do
+      participants = Enum.filter(participants, fn p ->
+        p.name != new_participant.name
+      end)
+      participants = [new_participant | participants]
+      %Event{event | participants: participants}
+      #^^^^^
+    end
+  end
+```
+
+Это очень полезно особенно когда нужно переименовать модуль.
+
+#### о базовых типах встроенных в сам Erlang
+это насление от Erlang-а, которое активно используется и в Elixir тоже:
+
+- atom(), boolean(), number(), pos_integer()
+
+смотри доку по эрлангу.
+
+Эликсировские же типы все в виде `String.t()`
+
+```elixir
+  defmodule Event do
+    @type t() :: %__MODULE__{
+      title: String.t(),
+      place: Place.t(),
+      time: DateTime.t(),
+      participants: list(Participant.t()), # аналог List<Participant> в java
+      agenda: list(Topic.t()) # есть синт. сахар [Topic.t()]
+    }
+
+    @enforce_keys [:title, :place, :time]
+
+    defstruct [
+      :title,
+      :place,
+      :time,
+      {:participants, []},
+      {:agenda, []}
+    ]
+  end
+```
+
+Есть синстаксический сахар для `list(MyStruct.t())` -> `[MyStruct.t()]`
+```elixir
+ defmodule Event do
+    @type t() :: %__MODULE__{
+            title: String.t(),
+            place: Place.t(),
+            time: DateTime.t(),
+            participants: [Participant.t()], # synt. sugar list(Participant.t())
+            agenda: [Topic.t()]
+          }
+```
+
+для Map:
+
+```elixir
+map(atom(), integer())  # analog of Map<Atom, Integer>
+```
+
+##### проверяем корректность кода через компиляцию проекта
+
+```sh
+mix compile
+Compiling 5 files (.ex)
+Generated my_calendar app
+```
+
+Функция для создания экземпляра данного события.
+
+по сути это копипаста, только используем другой модуль и алиас
+```elixir
+  def sample_event_typed_struct() do
+    alias MyCalendar.Model.EventTypedStruct, as: TS
+
+    place = %TS.Place{office: "Office #1", room: "#Room 42"}
+
+    time = ~U[2025-04-09 17:17:00Z]
+    participants = [
+      %TS.Participant{name: "Bob", role: :project_manager},
+      %TS.Participant{name: "Petya", role: :developer},
+      %TS.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+
+    %TS.Event{
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: participants,
+      agenda: agenda
+    }
+  end
+```
+
+проверяем
+```sh
+iex -S mix
+```
+
+```elixir
+iex> event = MyCalendar.sample_event_typed_struct()
+%MyCalendar.Model.EventTypedStruct.Event{
+  title: "Weekly Team Meeting",
+  place: %MyCalendar.Model.EventTypedStruct.Place{
+    office: "Office #1",
+    room: "#Room 42"
+  },
+  time: ~U[2025-04-09 17:17:00Z],
+  participants: [
+    %MyCalendar.Model.EventTypedStruct.Participant{
+      name: "Bob",
+      role: :project_manager
+    },
+    %MyCalendar.Model.EventTypedStruct.Participant{
+      name: "Petya",
+      role: :developer
+    },
+    %MyCalendar.Model.EventTypedStruct.Participant{name: "Kate", role: :qa}
+  ],
+  agenda: [
+    %MyCalendar.Model.EventTypedStruct.Topic{
+      title: "Interview",
+      description: "candidat for developer position",
+      priority: :medium
+    },
+    %MyCalendar.Model.EventTypedStruct.Topic{
+      title: "Direction",
+      description: "disscuss main goals",
+      priority: :medium
+    }
+  ]
+}
+```
+
+
+### подключаем к проекту Dialyzer
+
+- зачем все эти типы и как их использовать с Dialyzer
+- будем создавать проблемы и пытаться их находить через Dialyzer
+
+идём на https://hex.pm/packages/dialyxir
+dialyxir - это либа добавляющая поддержку Dialyzer
+
+подтягиваем либу из сети
+```sh
+mix deps.get
+
+Resolving Hex dependencies...
+Resolution completed in 0.132s
+New:
+  dialyxir 1.4.5
+  erlex 0.2.7
+* Getting dialyxir (Hex package)
+* Getting erlex (Hex package)
+```
+
+компилируем
+```sh
+mix compile
+
+==> erlex
+Compiling 1 file (.xrl)
+Compiling 1 file (.yrl)
+src/erlex_parser.yrl: Warning: conflicts: 27 shift/reduce, 0 reduce/reduce
+Compiling 2 files (.erl)
+Compiling 1 file (.ex)
+Generated erlex app
+==> dialyxir
+Compiling 67 files (.ex)
+Generated dialyxir app
+==> my_calendar
+Generated my_calendar app
+```
+- при этом сначала компилируюся все библиотеки-зависимости,
+- затем уже исходники проекта
+
+запускаем Dialyzer
+
+при превом запуске Dialyzer будет создавать Persistent Lookup Tables (PLT)
+- это спец. файлы хранящие инфу о имеющихся в проекте модулях и типах.
+PLT состоит из
+- текущей используемой версии Elixir (то есть берутся все исходники Elixir-а)
+- все зависимости проекта и прямые и транзитивные
+- исходники самого проекта
+
+Полное создание PLT таблиц с нуля идёт только при первом запуске, и занимает
+обычно приличное время. Затем сгенерированные PLT данные кэшируются и исп-ся
+при последующих запусках dialyzer
+
+```sh
+mix dialyzer
+```
+output:
+```html
+Finding suitable PLTs
+Checking PLT...
+[:compiler, :crypto, :dialyxir, :dialyzer, :elixir, :erlex, :erts, :kernel, :logger, :mix, :my_calendar, :stdlib, :syntax_tools]
+Looking up modules in dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Looking up modules in dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Looking up modules in dialyxir_erlang-26.2.1.plt
+Finding applications for dialyxir_erlang-26.2.1.plt
+Finding modules for dialyxir_erlang-26.2.1.plt
+Creating dialyxir_erlang-26.2.1.plt
+Looking up modules in dialyxir_erlang-26.2.1.plt
+Removing 3 modules from dialyxir_erlang-26.2.1.plt
+Checking 18 modules in dialyxir_erlang-26.2.1.plt
+Adding 191 modules to dialyxir_erlang-26.2.1.plt
+done in 0m23.02s
+Finding applications for dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Finding modules for dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Copying dialyxir_erlang-26.2.1.plt to dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Looking up modules in dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Checking 209 modules in dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+Adding 273 modules to dialyxir_erlang-26.2.1_elixir-1.18.3.plt
+done in 0m21.8s
+Finding applications for dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Finding modules for dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Copying dialyxir_erlang-26.2.1_elixir-1.18.3.plt to dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Looking up modules in dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Checking 482 modules in dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+Adding 304 modules to dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt
+done in 1m12.02s
+No :ignore_warnings opt specified in mix.exs and default does not exist.
+
+Starting Dialyzer
+[
+  check_plt: false,
+  init_plt: ~c"./my_calendar/_build/dev/dialyxir_erlang-26.2.1_elixir-1.18.3_deps-dev.plt",
+  files: [~c"./my_calendar/_build/dev/lib/my_calendar/ebin/Elixir.MyCalendar.Model.EventMap.Event.beam",
+   ~c"./my_calendar/_build/dev/lib/my_calendar/ebin/Elixir.MyCalendar.Model.EventMap.Participant.beam",
+   ~c"./my_calendar/_build/dev/lib/my_calendar/ebin/Elixir.MyCalendar.Model.EventMap.Place.beam",
+   ~c"./my_calendar/_build/dev/lib/my_calendar/ebin/Elixir.MyCalendar.Model.EventMap.Topic.beam",
+   ~c"./my_calendar/_build/dev/lib/my_calendar/ebin/Elixir.MyCalendar.Model.EventMap.beam",
+   ...],
+  warnings: [:unknown]
+]
+Total errors: 1, Skipped: 0, Unnecessary Skips: 0
+done in 0m3.92s
+lib/model/event_struct.ex:32:9:callback_type_mismatch
+Type mismatch for @callback pop/2 in Access behaviour.
+
+Expected type:
+{_, Keyword.t() | map()}
+
+Actual type:
+nil
+
+________________________________________________________________________________
+done (warnings were emitted)
+Halting VM with exit status 2
+```
+
+
+`Starting Dialyzer` - с этой строки начинается вывод инфы об статическом анализе
+и найденых в проекте ошибках:
+
+```html
+lib/model/event_struct.ex:32:9:callback_type_mismatch
+Type mismatch for @callback pop/2 in Access behaviour.
+
+Expected type:
+{_, Keyword.t() | map()}
+
+Actual type:
+nil
+
+________________________________________________________________________________
+```
+Это говорит о том, что найдена одна ошибка в модуле event_struct.ex
+в функции коллбеке для Access-behaviour, которую мы в прошлый раз добавили
+как заглушку но не дописали её до конца.
+
+- место где найдена ошибка и что не так:
+`Type mismatch for @callback pop/2 in Access behaviour.` -
+ не правильный тип для коллбека-функции pop/2
+ то, что ожидается(возвращаемый тип) и то что реально есть в коде
+```html
+Expected type:
+{_, Keyword.t() | map()}
+
+Actual type:
+nil
+```
+исправляем место в коде с ошибкой
+```elixir
+    @impl true
+    def pop(place, _key) do
+      place                        # +
+    end
+```
+
+перезапусаем
+```sh
+mix dialyzer
+```
+```html
+Compiling 1 file (.ex)
+Generated my_calendar app
+Finding suitable PLTs
+Checking PLT...
+[:compiler, :crypto, :dialyxir, :dialyzer, :elixir, :erlex, :erts, :kernel, :logger, :mix, :my_calendar, :stdlib, :syntax_tools]
+PLT is up to date!
+No :ignore_warnings opt specified in mix.exs and default does not exist.
+
+Starting Dialyzer
+[ check_plt: false, ...], warnings: [:unknown] ]
+
+Total errors: 0, Skipped: 0, Unnecessary Skips: 0
+done in 0m3.97s
+done (passed successfully)
+```
+
+
+## создаём проблемы типов в модуле event_typed_struct
+
+заменяем тип Place.t() на не существующий модуль Location.t()
+
+```elixir
+  defmodule Event do
+    @type t() :: %__MODULE__{
+            title: String.t(),
+            place: Location.t(), # place: Place.t(),        <<<<
+            time: DateTime.t(),
+            participants: [Participant.t()],
+            agenda: [Topic.t()]
+          }
+    # ...
+  end
+```
+
+Проверяем скомпилиться ли это? Да - молча значит ошибок нет
+(компилятор по сути игнорирует сложные описания типов внутри @type)
+```sh
+mix compile
+```
+
+запускаем проверку
+```sh
+mix dialyzer
+```
+```html
+Total errors: 1, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.0s
+lib/model/event_typed_struct.ex:42:28:unknown_type
+Unknown type: Location.t/0.
+```
+
+Dialyzer говорит о том, что обнаружен не известный тип.
+
+
+Location.t() -> location()
+
+```elixir
+  defmodule Event do
+    @type t() :: %__MODULE__{
+            title: String.t(),
+            place: location(), # place: Place.t(),
+            time: DateTime.t(),
+            # synt. sugar list(Participant.t())
+            participants: [Participant.t()],
+            agenda: [Topic.t()]
+          }
+```
+
+```sh
+mix compile
+```
+```html
+Compiling 1 file (.ex)
+
+== Compilation error in file lib/model/event_typed_struct.ex ==
+** (Kernel.TypespecError) lib/model/event_typed_struct.ex:40: type location/0 undefined (no such type in MyCalendar.Model.EventTypedStruct.Event)
+    (elixir 1.18.3) lib/kernel/typespec.ex:980: Kernel.Typespec.compile_error/2
+    (elixir 1.18.3) lib/kernel/typespec.ex:568: anonymous fn/6 in Kernel.Typespec.typespec/4
+    (stdlib 5.2) lists.erl:1706: :lists.mapfoldl_1/3
+    (stdlib 5.2) lists.erl:1707: :lists.mapfoldl_1/3
+    (elixir 1.18.3) lib/kernel/typespec.ex:582: Kernel.Typespec.typespec/4
+    (elixir 1.18.3) lib/kernel/typespec.ex:308: Kernel.Typespec.translate_type/2
+    (stdlib 5.2) lists.erl:1706: :lists.mapfoldl_1/3
+    (elixir 1.18.3) lib/kernel/typespec.ex:235: Kernel.Typespec.translate_typespecs_for_module/2
+```
+
+- type location/0 undefined (no such type in MyCalendar.Model.EventTypedStruct.Event)
+здесь компилятор предупреждает что в коде используется нигде не найденый тип
+
+пробуем запустить Dialyzer И видем что он даже не запускается - это потому что
+исходник не компилируется и компиляция валится с ошибкойл
+
+#### создаём ошибку: вызов не существующей функции
+
+```elixir
+  def sample_event_typed_struct() do
+    alias MyCalendar.Model.EventTypedStruct, as: TS
+
+    place = %TS.Place{office: "Office #1", room: "#Room 42"}
+
+    time = ~U[2025-04-09 17:17:00Z]
+    participants = [
+      %TS.Participant{name: "Bob", role: :project_manager},
+      %TS.Participant{name: "Petya", role: :developer},
+      %TS.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+
+    event = %TS.Event{
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: participants,
+      agenda: agenda
+    }
+
+    TS.Event.add_participant(event, nil)     # <<<
+  end
+```
+
+```sh
+ mix compile
+    warning: MyCalendar.Model.EventTypedStruct.Event.add_participant/2 is undefined or private
+    │
+ 98 │     TS.Event.add_participant(event, nil)
+    │              ~
+    │
+    └─ lib/my_calendar.ex:98:14: MyCalendar.sample_event_typed_struct/0
+```
+выдаёт только предупреждение а не ошибку компиляции.
+
+
+```sh
+mix dialyzer
+```
+```html
+Total errors: 1, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.06s
+lib/my_calendar.ex:98:14:call_to_missing
+Call to missing or private function MyCalendar.Model.EventTypedStruct.Event.add_participant/2.
+________________________________________________________________________________
+done (warnings were emitted)
+Halting VM with exit status 2
+```
+- Call to missing or private function  - попытка вызова не существующей или
+  приватной функции
+
+Добавим заглушку для этой функции и посмотрим на реакиции compile и dialyzer
+
+```elixir
+  defmodule Event do
+    # ...
+
+    def add_participant(event, _participant) do # просто заглушка без реализации
+      event
+    end
+  end
+```
+```sh
+mix compile
+Compiling 1 file (.ex)
+Compiling 1 file (.ex)
+Generated my_calendar app
+```
+
+```sh
+mix dialyzer
+Total errors: 0, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.05s
+done (passed successfully)
+```
+ошибок нет.
+
+Да логически add_participant не правильна с точки зрения приложения, потому что
+ничего не дает, кроме как возвращает тот же event без изменений, но с точки
+зрения статического анализа здесь всё корректно.
+
+#### добавляем паттерн матчинг в add_participant
+
+```elixir
+    def add_participant(%Event{} = event, %Participant{} = participant) do
+      event
+    end
+```
+Это делается для того чтобы в runtime проходила явная проверка входных параметров
+то есть если типы не соответствуют кидалась ошибка
+
+Запускаем компиляцию (Elixir 1.18.3)
+```sh
+mix compile
+```
+```html
+Compiling 1 file (.ex)
+    warning: incompatible types given to MyCalendar.Model.EventTypedStruct.Event.add_participant/2:
+
+        MyCalendar.Model.EventTypedStruct.Event.add_participant(event, nil)
+
+    given types:
+
+        (
+          %MyCalendar.Model.EventTypedStruct.Event{
+            agenda:
+              non_empty_list(%MyCalendar.Model.EventTypedStruct.Topic{
+                description: binary(),
+                priority: :medium,
+                title: binary()
+              }),
+            participants:
+              non_empty_list(%MyCalendar.Model.EventTypedStruct.Participant{
+                name: binary(),
+                role: :developer or :project_manager or :qa
+              }),
+            place: %MyCalendar.Model.EventTypedStruct.Place{office: binary(), room: binary()},
+            time: %DateTime{
+              calendar: Calendar.ISO,
+              day: integer(),
+              hour: integer(),
+              microsecond: {integer(), integer()},
+              minute: integer(),
+              month: integer(),
+              second: integer(),
+              std_offset: integer(),
+              time_zone: binary(),
+              utc_offset: integer(),
+              year: integer(),
+              zone_abbr: binary()
+            },
+            title: binary()
+          },
+          nil
+        )
+
+    but expected one of:
+
+        (
+          dynamic(%MyCalendar.Model.EventTypedStruct.Event{
+            agenda: term(),
+            participants: term(),
+            place: term(),
+            time: term(),
+            title: term()
+          }),
+          dynamic(%MyCalendar.Model.EventTypedStruct.Participant{name: term(), role: term()})
+        )
+
+    where "event" was given the type:
+
+        # type: %MyCalendar.Model.EventTypedStruct.Event{
+          agenda:
+            non_empty_list(%MyCalendar.Model.EventTypedStruct.Topic{
+              description: binary(),
+              priority: :medium,
+              title: binary()
+            }),
+          participants:
+            non_empty_list(%MyCalendar.Model.EventTypedStruct.Participant{
+              name: binary(),
+              role: :developer or :project_manager or :qa
+            }),
+          place: %MyCalendar.Model.EventTypedStruct.Place{office: binary(), room: binary()},
+          time: %DateTime{
+            calendar: Calendar.ISO,
+            day: integer(),
+            hour: integer(),
+            microsecond: {integer(), integer()},
+            minute: integer(),
+            month: integer(),
+            second: integer(),
+            std_offset: integer(),
+            time_zone: binary(),
+            utc_offset: integer(),
+            year: integer(),
+            zone_abbr: binary()
+          },
+          title: binary()
+        }
+        # from: lib/my_calendar.ex:90:11
+        event = %MyCalendar.Model.EventTypedStruct.Event{
+          title: "Weekly Team Meeting",
+          place: place,
+          time: time,
+          participants: participants,
+          agenda: agenda
+        }
+
+    typing violation found at:
+    │
+ 98 │     TS.Event.add_participant(event, nil)
+    │              ~
+    │
+    └─ lib/my_calendar.ex:98:14: MyCalendar.sample_event_typed_struct/0
+
+Generated my_calendar app
+```
+
+
+Смотрим что скажет Dialyzer
+```sh
+mix dialyzer
+```
+```html
+Total errors: 2, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.1s
+lib/my_calendar.ex:74:7:no_return
+Function sample_event_typed_struct/0 has no local return.
+________________________________________________________________________________
+lib/my_calendar.ex:98:14:call
+The function call will not succeed.
+
+MyCalendar.Model.EventTypedStruct.Event.add_participant(
+  _event :: %MyCalendar.Model.EventTypedStruct.Event{
+    :agenda => [
+      %MyCalendar.Model.EventTypedStruct.Topic{
+        :description => <<_::152, _::size(96)>>,
+        :priority => :medium,
+        :title => <<_::72>>
+      },
+      ...
+    ],
+    :participants => [
+      %MyCalendar.Model.EventTypedStruct.Participant{
+        :name => <<_::24, _::size(8)>>,
+        :role => :developer | :project_manager | :qa
+      },
+      ...
+    ],
+    :place => %MyCalendar.Model.EventTypedStruct.Place{
+      :office => <<_::72>>,
+      :room => <<_::64>>
+    },
+    :time => %DateTime{
+      :calendar => Calendar.ISO,
+      :day => 9,
+      :hour => 17,
+      :microsecond => {0, 0},
+      :minute => 17,
+      :month => 4,
+      :second => 0,
+      :std_offset => 0,
+      :time_zone => <<_::56>>,
+      :utc_offset => 0,
+      :year => 2025,
+      :zone_abbr => <<_::24>>
+    },
+    :title => <<_::152>>
+  },
+  nil
+)
+
+will never return since the 2nd arguments differ
+from the success typing arguments:
+
+(
+  %MyCalendar.Model.EventTypedStruct.Event{},
+  %MyCalendar.Model.EventTypedStruct.Participant{}
+)
+
+```
+
+lib/my_calendar.ex:98:14:call
+The function call will not succeed.
+
+место(номер строки) ошибки в коде:
+```elixir
+  def sample_event_typed_struct() do
+    alias MyCalendar.Model.EventTypedStruct, as: TS
+    # ...
+    event = %TS.Event{...}
+
+    TS.Event.add_participant(event, nil)   # << 98
+  end
+```
+
+```elixir
+  defmodule Event do
+    @type t() :: %__MODULE__{... }
+
+    @enforce_keys [:title, :place, :time]
+
+    defstruct [...]
+
+    def add_participant(%Event{} = event, %Participant{} = _participant) do
+      event
+    end
+
+  end
+```
+
+дальше в выводе описывается как проходил вызов:
+```elixir
+MyCalendar.Model.EventTypedStruct.Event.add_participant(
+  _event :: %MyCalendar.Model.EventTypedStruct.Event{...data.. },
+  nil                                                             # <<<
+)
+
+will never return since the 2nd arguments differ
+from the success typing arguments:
+
+(
+  %MyCalendar.Model.EventTypedStruct.Event{},
+  %MyCalendar.Model.EventTypedStruct.Participant{}                 # <<<
+)
+```
+то есть ошибка в том что ожидается 2й аргумент с типом
+`MyCalendar.Model.EventTypedStruct.Participant` а преедаём nil.
+
+
+
+
+#### заменяем в add_participant паттерн матчинг на @spec(спецификацию)
+убираем паттер матчинг который гарантирует защиту в рантайме на спецификацию
+```elixir
+    # def add_participant(%Event{} = event, %Participant{} = _participant) do
+    @spec add_participant(Event.t(), Participant.t()) :: Event.t()
+    def add_participant(event, _participant) do
+      event
+    end
+```
+
+проверяем
+```sh
+mix compile
+Compiling 1 file (.ex)
+Generated my_calendar app
+```
+
+Dialyzer: (находит опять 2 ошибки)
+```html
+Total errors: 2, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.06s
+lib/my_calendar.ex:74:7:no_return
+Function sample_event_typed_struct/0 has no local return.
+________________________________________________________________________________
+lib/my_calendar.ex:98:14:call
+The function call will not succeed.
+
+MyCalendar.Model.EventTypedStruct.Event.add_participant(
+  _event :: %MyCalendar.Model.EventTypedStruct.Event{
+    :agenda => [
+      %MyCalendar.Model.EventTypedStruct.Topic{
+        :description => <<_::152, _::size(96)>>,
+        :priority => :medium,
+        :title => <<_::72>>
+      },
+      ...
+    ],
+    :participants => [
+      %MyCalendar.Model.EventTypedStruct.Participant{
+        :name => <<_::24, _::size(8)>>,
+        :role => :developer | :project_manager | :qa
+      },
+      ...
+    ],
+    :place => %MyCalendar.Model.EventTypedStruct.Place{
+      :office => <<_::72>>,
+      :room => <<_::64>>
+    },
+    :time => %DateTime{
+      :calendar => Calendar.ISO,
+      :day => 9,
+      :hour => 17,
+      :microsecond => {0, 0},
+      :minute => 17,
+      :month => 4,
+      :second => 0,
+      :std_offset => 0,
+      :time_zone => <<_::56>>,
+      :utc_offset => 0,
+      :year => 2025,
+      :zone_abbr => <<_::24>>
+    },
+    :title => <<_::152>>
+  },
+  nil
+)
+
+breaks the contract
+(t(), MyCalendar.Model.EventTypedStruct.Participant.t()) :: t()
+```
+
+- breaks the contract - говорит что идёт нарушение контракта указаннов в @spec
+  то ожидается аргумент типа Participant.t() и реально передаётся nil
+
+Предположим что есть два правильных варианта для 2го аргумента
+- Participant.t() или atom() (nil - это атом)
+
+```elixir
+    @spec add_participant(Event.t(), Participant.t() | atom()) :: Event.t()
+    def add_participant(event, _participant) do
+      event
+    end
+```
+Dialyzer:
+```sh
+Total errors: 0, Skipped: 0, Unnecessary Skips: 0
+done in 0m4.09s
+done (passed successfully)
+```
+
+
+
+## Dialyzer 1.4.3 странные и не понятные ошибки has no local return
+
+в старых версиях Dialyzer (1.4.3) была проблема с непонятной ошибкой:
+из-за того, что Dialyzer не умел правльно раставлять для стуктур значения по
+умолчанию, в результате чего затем думал что не хватает одного ключа и это
+нарушение контракта, при этом выводя очень странную и не понятную ошибку
+
+```html
+lib/my_calendar.ex:98:no_return
+Function sample_event_typed_struc/0 has no local return.
+```
+дословно
+- функция sample_event_typed_struct - не может вернуть правильное значение
+  то есть Dialyzer думает что значение типа возращаемое изх add_participant
+  не соответствует `%TS.Event{}`
+
+
+
+> "Раскручиваем" Dialyzer на вывод более подробного отчёта об ошибке.
+ищем что может быть не так
+
+да визуально кажется что всё в порядке, типы везде прописаны.
+
+
+```elixir
+  def sample_event_typed_struct() do
+    alias MyCalendar.Model.EventTypedStruct, as: TS
+
+    place = %TS.Place{office: "Office #1", room: "#Room 42"}
+
+    time = ~U[2025-04-09 17:17:00Z]
+    participants = [
+      %TS.Participant{name: "Bob", role: :project_manager},
+      %TS.Participant{name: "Petya", role: :developer},
+      %TS.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+
+    event = %TS.Event{                      # lnum:90   << (2)
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: participants,
+      agenda: agenda
+    }
+
+    TS.Event.add_participant(event, nil)    # lnum:98  << (1) no_return
+  end
+```
+
+- 1. хотя в самой функции add_participant возвращается то что пришло на вход и
+нарушений типа Event.t() Dialyzer не обнаружил.
+```elixir
+    @spec add_participant(Event.t(), Participant.t() | atom()) :: Event.t()
+    def add_participant(event, _participant) do
+      event
+    end
+```
+
+Чтобы разрулить подобную непонятную ошибку, нужна смекалка и опыт.
+Интуиция подсказыват что похоже Dialyzer-у что-то не нравится в значении
+event (2) (lnum:90). Что возможно что-то внутри этого значения не так.
+
+Убедиться в этой догадке можно если убрать тип стуктуры Event.t() и заменить её
+на map() (Тип Map): а затем перезапустить диалайзер
+```elixir
+    # @spec add_participant(Event.t(), Participant.t() | atom()) :: Event.t())
+    @spec add_participant(map(), Participant.t() | atom()) :: map()
+```
+После этого диалайзер говорит что ошибок больше нет. А это значит то, что
+диалайзеру не нравится именно значение event на строке 90.
+
+Теперь можно посмотреть что не так копая глубже - поочередно исключая слабые места:
+```elixir
+    event = %TS.Event{                      # lnum:90
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: [], # participants,     # может проблема во вложенных типах?
+      agenda: [], # agenda                  # проверим это подставив пустые листы
+    }
+```
+после запуска диалайзер скажет всё ок. значит проблема или в participants либо в
+agenda
+
+```elixir
+    participants = [
+      %TS.Participant{name: "Bob", role: :project_manager},
+      %TS.Participant{name: "Petya", role: :developer},
+      %TS.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+```
+ну и понять какое из значение ломает так же просто - оставляем одно из них
+и проверяем появится ли ошибка, приходим к тому что ошибка вылезает на agenda:
+```elixir
+    event = %TS.Event{
+      # ...
+      participants: participants,         # ok ошибок нет
+      agenda: [], # agenda
+    }
+```
+```elixir
+    event = %TS.Event{
+      # ...
+      participants: [], #participants,
+      agenda: agenda                        # ошибка!
+    }
+```
+
+выяснив что Диалайзеру не нравится значение в agenda пробуем глянуть глубже
+```elixir
+    agenda = [
+      # %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+```
+После этого Dialyzer выдаст более подробную и понятную ошибку
+
+```html
+MyCalendar.Model.EventTypedStruct.Event.add_participant(
+  _event :: %MyCalendar.Model.EventTypedStruct.Event(     # arg1
+  # ... agenda, participants, place, time, title ...
+  ),
+  nil                                                     # arg2
+)
+breaks the contract
+(t(), MyCalendar.Model.EventTypedStruct.Participant.t() | atom()) :: t()
+```
+Это говорит что Диалайзер думает что арг1 не соответствует ожидаемому типу.
+
+Пробуем оставить только первую тему агенды убрав вторую
+```elixir
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      # %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+```
+теперь диалайзер говорит ошибок нет. Значит ошибка была в строчке
+```elixir
+ %TS.Topic{title: "Direction", description: "disscuss main goals"}
+```
+а здесь не указывается :priority которое в рантайме устанавливается в значение
+по умолчанию: (Но в старых версиях Dialyzer не умел корректно с этим работать)
+
+
+```elixir
+  defmodule Topic do
+    @type t() :: %__MODULE__{
+            title: String.t(),
+            description: String.t(),
+            priority: :high | :medium | :low
+          }
+
+    @enforce_keys [:title]
+
+    defstruct [
+      :title,
+      :description,
+      {:priority, :medium}   # имя поля, значение по умолчанию
+    ]
+  end
+```
+
+значение по умолчанию указанное в defstruct выставляется именно в runtime и
+для старых версий Dialyzer не известно на этапе компиляции
+
+то есть если явно прописать значени то диалайзер скажет ошибок нет.
+```elixir
+ %TS.Topic{title: "Direction", description: "disscuss main goals", priority: :medium}
+```
+
+
+#### о полезностях Dialyzer и почему его стоит использовать со старта проекта
+
+Dialyzer хотя местами может быть и не идеальным, и например на старых версиях
+мог выдавать очень запутанные и не понятные ошибки, он всё таки считается
+крайне полезным инструментом, который стоит использовать в своих проектах для
+гарантирования качества и отлова ошибок еще на этапе разработки и компиляции,
+а не в рантайме на проде.
+
+Рекомендуется начинать использовать Dialyzer именно со старта проекта, с самого
+начала написания кода. Если же начать использовать его уже на имеющейся кодовой
+базе где он раньше не использовался то количество ошибок им найденое может
+отбить желание их править, либо на это будет уходить очень много времени.
+Придётся долго и упорно, поэтапно исправлять найденые ошибки.
+Как правило основные такие найденые косяки будут не в ошибках в коде, а в
+отсутствии спецификации(описания) типов. Когда типы либо вообще не указаны,
+либо разработчик ошибается в используемых типах.
+
+Так же хорошей практикой считается создание CI (Continuos Integration)
+в который на коммиты добавляют запуск тестов и Dialyzer. так чтобы CI падал
+если в коммитах есть какие-либо ошибки. как в тестах, так и в статической диагностике кода(выводе Dialyzer).
+
+
+#### размещаем dialyzer как dev-зависимость
+
+```sh
+iex -S mix
+```
+```html
+Erlang/OTP 26 [erts-14.2.1] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [jit:ns]
+
+Warning: the `dialyxir` application's start function was called, which likely means you
+did not add the dependency with the `runtime: false` flag. This is not recommended because
+it will mean that unnecessary applications are started, and unnecessary applications are most
+likely being added to your PLT file, increasing build time.
+Please add `runtime: false` in your `mix.exs` dependency section e.g.:
+{:dialyxir, "~> 0.5", only: [:dev], runtime: false}
+
+Interactive Elixir (1.18.3) - press Ctrl+C to exit (type h() ENTER for help)
+iex(1)>
+```
+
+```elixir
+  defp deps do
+    [
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      #                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      # {:dep_from_hexpm, "~> 0.3.0"},
+      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+    ]
+  end
+```
+
+```sh
+iex -S mix
+Erlang/OTP 26 [erts-14.2.1] [source] [64-bit] [smp:4:4] [ds:4:4:10] [async-threads:1] [jit:ns]
+
+Generated my_calendar app
+Interactive Elixir (1.18.3) - press Ctrl+C to exit (type h() ENTER for help)
+iex(1)>
+```
+
+

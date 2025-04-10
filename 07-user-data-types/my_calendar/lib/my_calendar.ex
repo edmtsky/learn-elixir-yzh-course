@@ -70,4 +70,31 @@ defmodule MyCalendar do
       agenda: agenda
     }
   end
+
+  def sample_event_typed_struct() do
+    alias MyCalendar.Model.EventTypedStruct, as: TS
+
+    place = %TS.Place{office: "Office #1", room: "#Room 42"}
+
+    time = ~U[2025-04-09 17:17:00Z]
+    participants = [
+      %TS.Participant{name: "Bob", role: :project_manager},
+      %TS.Participant{name: "Petya", role: :developer},
+      %TS.Participant{name: "Kate", role: :qa},
+    ]
+    agenda = [
+      %TS.Topic{title: "Interview", description: "candidat for developer position"},
+      %TS.Topic{title: "Direction", description: "disscuss main goals"},
+    ]
+
+    event = %TS.Event{
+      title: "Weekly Team Meeting",
+      place: place,
+      time: time,
+      participants: participants,
+      agenda: agenda
+    }
+
+    TS.Event.add_participant(event, nil)
+  end
 end

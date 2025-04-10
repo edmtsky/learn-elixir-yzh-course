@@ -29,8 +29,8 @@ defmodule MyCalendar.Model.EventStruct do
     end
 
     @impl true
-    def pop(_place, _key) do
-      # todo
+    def pop(place, _key) do
+      place
     end
   end
 
