@@ -17,3 +17,7 @@
 inspect в логах для debug-loglevel. Как это работает? это макрос или обычная
 функция которая сначала отрабатывает и передаёт свой результат не зависимо от
 уровня логирования или же там как-то работает хитрее?
+
+
+Use of "inspect" in log messages(2016)
+https://elixirforum.com/t/use-of-inspect-in-log-messages/2100/4
