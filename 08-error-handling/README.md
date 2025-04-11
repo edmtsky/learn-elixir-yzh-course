@@ -739,3 +739,394 @@ try-rescue не перехатывает ошибку :exit приходящую
 "Потроха Эрланга Вылезают из-под капота Эликсира"(c)автор курса
 
 
+
+
+## 08.03 Пользовательские типы исключений
+
+Это прло создание своих собственных исключений, поверх встроенных в Эликсир.
+Создавать свои пользовательские исключения обычно нужно тем, кто привык строить
+бизнес-логику и ControlFlow (управление потоком управления) на исключениях.
+Но в Эликсир/Эрланг вообще не рекомендуется использовать исключения для
+ControlFlow. Но Эликрсир даёт гибкость для тех кто привык так делать, но опять
+таки для этого нужно использовать свои кастомные типы исключения а не встроенные
+системные исключения.
+
+Практический пример использования исключений.
+У нас есть некий сервис с http API. принимающий запросы и отдающий ответы.
+по ходу обработки входящих запросов производятся несколько основных действий:
+
+- аутентификация
+- авторизация (проверка прав)
+- валидация данных
+
+и каждое из этих действий(шагов) может прервать дальнейшее выполнение
+например просто потому, что запрос пользователя не прошел аутентификацию или
+валидацию входных данных. И вот для остановки каждого из этих шагов могут быть
+использованы свои кастомные исключения.
+
+> Создание исключения о том, что Аутентификация провалена
+
+для описания своего кастомного исключения нужно исп-ть макрос defexception
+```elixir
+defmodule CustomExceptionDemo do
+
+  defmodule Model do
+    defmodule AuthentificationError do
+      @enforce_keys [:type]
+      defexception [:type, :token, :login]   # на подобии defstruct
+      # ...
+    end
+  end
+end
+```
+
+каждое исключение должно реализовывать behaviour Exception.
+т.е. нужна строка кода `@behaviour Exception`, но её подставляет макрос
+defexception, поэтому указывать это самому руками не нужно. Но нужно задать
+функции коллбеки для Exception: expression и message:
+
+```elixir
+defmodule CustomExceptionDemo do
+
+  defmodule Model do
+
+    defmodule AuthentificationError do # наше кастомное исключение
+      # @behaviour Exception  всякое исключение должно реализовывать Exception
+
+      @enforce_keys [:type]
+      defexception [:type, :token, :login]
+
+      @impl true
+      def exception({type, data}) do  # для создания экземпляра исключения
+        case type do
+          :token -> %__MODULE__{type: :token, token: data}
+          :login -> %__MODULE__{type: :token, login: data}
+          #          ^ AuthentificationError
+        end
+      end
+
+      @impl true
+      def message(exception) do  # для возврата текстового представления
+        case exception.type do
+          :token -> "AuthentificationError: invalid token"
+          :login -> "AuthentificationError: invalid login"
+        end
+      end
+    end
+  end
+
+end
+```
+
+проверяем написанное через iex-консоль
+```sh
+iex custom_exception_demo.exs
+```
+
+```elixir
+iex> alias CustomExceptionDemo, as: C
+iex> alias CustomExceptionDemo.Model, as: M
+CustomExceptionDemo.Model
+
+# кидаем исключение своего кастомного типа через raise
+iex> raise(M.AuthentificationError, {:token, "aaaa"})
+#          ^arg1                    ^arg2
+** (CustomExceptionDemo.Model.AuthentificationError) AuthentificationError: invalid token
+    iex:4: (file)
+```
+
+- arg2- вторым параметром идут данные по которым будет создан экземпляр
+  нашего кастомного исключения
+
+как это работает
+- когда вызываем raise под копотом вызывается коллбек Exception.exception
+  и создаёт экземпляр исключения
+- "AuthentificationError: invalid token" - это то самое текстовое сообщение
+  которое мы задали в своей реализации коллбека Exception.message
+
+можно вызывать raise И без скобок, типо это такой синтаксис а не функция
+как в java `throw new ...`
+```elixir
+iex> raise M.AuthentificationError, {:token, "aaaa"}
+** (CustomExceptionDemo.Model.AuthentificationError) AuthentificationError: invalid token
+    iex:4: (file)
+```
+
+
+#### исключение для аторизации (AuthZ)
+аутентификация пройдена, теперь нужно проверить прова аутентифицированного юзера
+
+```elixir
+defmodule CustomExceptionDemo do
+
+  defmodule Model do
+    defmodule AuthentificationError do # who are you
+      # ....
+    end
+
+    defmodule AuthorizationError do    # +++  what you can access
+      defexception [:role, :action]
+    end
+  end
+
+end
+```
+
+- role - роль юзера (админ, гость и т.д)
+- action - действие которое он собирался сделать.
+
+```elixir
+    defmodule AuthorizationError do
+      @enforce_keys [:role, :action]  # вообще для исключений это не обязательно
+      defexception [:role, :action]
+
+      @impl true
+      def exception({role, action}) do
+        %__MODULE__{role: role, action: action}
+      end
+
+      @impl true
+      def message(exception) do
+        "AuthentificationError: role #{exception.role} is not allowed to do"
+          <> " action #{exception.action}"
+      end
+    end
+  end
+```
+
+```elixir
+r M
+{:reloaded,
+ [CustomExceptionDemo, CustomExceptionDemo.Model,
+  CustomExceptionDemo.Model.AuthentificationError,
+  CustomExceptionDemo.Model.AuthorizationError]}
+
+# второй способ перкомпилировать весь модуль
+iex> File.ls     # смотрю какие есть файлы в текущем каталоге
+{:ok, ["custom_exception_demo.exs", "exception_demo.exs", "README.md"]}
+
+# compile модуль
+iex> c "custom_exception_demo.exs"
+[CustomExceptionDemo, CustomExceptionDemo.Model,
+ CustomExceptionDemo.Model.AuthentificationError,
+ CustomExceptionDemo.Model.AuthorizationError]
+```
+
+
+```elixir
+iex> raise M.AuthorizationError, {:guest, :reconfigure}
+** (CustomExceptionDemo.Model.AuthorizationError) AuthentificationError: role guest is not allowed to do action reconfigure
+    iex:7: (file)
+```
+
+
+
+```elixir
+    defmodule SchemeValidationError do
+      defexception [:schema_name]
+
+      @impl true
+      def exception(schema_name) do
+        %__MODULE__{schema_name: schema_name}
+      end
+
+      @impl true
+      def message(exception) do
+        "SchemeValidationError: data does not match schema #{exception.schema_name}"
+      end
+    end
+```
+
+```elixir
+iex> raise M.SchemeValidationError, "some_schema_json"
+** (CustomExceptionDemo.Model.SchemeValidationError) SchemeValidationError: data does not match schema some_schema_json
+    iex:8: (file)
+```
+
+Пишем пример в котором будем использовать свои исключения.
+
+Напишем функцию handle - которая в нашем примере будет эмулировать ендпоинт
+контроллера, принимающего http-запрос от клиента на стороне сервера.
+схематично
+```elixir
+  def handle(request) do
+    try do
+      # шаг 1
+      # шаг 2
+      # шаг N
+      # ответ клиенту при успехе
+    rescue
+      # перехват исключений и ответ клиенту об ошибке
+    end
+  end
+```
+
+```elixir
+defmodule CustomExceptionDemo do
+
+  defmodule Controller do
+    # для возможности доступа к ислючениям в ф-и handle()
+    alias CustomExceptionDemo.Model, as: M
+
+    # as function of our service
+    def handle(request) do # представляем что это обработчик внутри контроллера
+      try do
+        authenticate(request)
+        authorize(request)
+        validate(request)
+        result = do_something_useful(request) # получение результата - "ответа"
+        {200, result}
+      rescue                                    # если что-то пошло не так
+        error in [M.AuthentificationError, M.AuthorizationError] ->
+          {403, Exception.message(error)} # сообщение об ошибке отправляем клиенту
+
+        error in [M.SchemeValidationError] ->
+          {409, Exception.message(error)}
+
+        error ->
+          IO.puts(Exception.format(:error, error, __STACKTRACE__))  # to log
+          {500, "Internal Server Error"}                            # to client
+      end
+    end
+  end
+
+  defmodule Model do
+    defmodule AuthentificationError do ... end
+    defmodule AuthorizationError do ... end
+    defmodule SchemeValidationError do ... end
+  end
+end
+```
+
+
+
+200 - это 200й код http-ответа (OK)
+403 - стандартный http-код не авторизован или не хватает прав
+500 - случилось что-то не предусмотренное в коде, добавляем логирование в stdout
+`__STACKTRACE__` - это макрос который подставит стектрейс в лог
+
+
+пишем заглушки шагов для проверки своих исключений
+
+```elixir
+    def authentificate(request) do
+      case request.token do
+        "aaa" -> :ok
+        "bbb" -> :ok
+        _ -> raise M.AuthentificationError, {:token, request.token}
+      end
+    end
+
+    def authorize(request) do
+      case request.token do
+        "aaa" -> :ok
+        _ -> raise M.AuthorizationError, {:guest, :reconfigure} # role + action
+      end
+    end
+
+    def validate(request) do
+      if Map.has_key?(request, data) do
+        :ok
+      else
+        raise M.SchemeValidationError, "some_schema.json"
+      end
+    end
+```
+
+```elixir
+defmodule CustomExceptionDemo do
+
+  # request sample for happy path
+  def request_1 do
+    %{token: "aaa", data: %{a: 42}}
+  end
+  # .. остальные сэмплы будем писать сюда
+
+  defmodule Controller do
+    # ...
+  end
+end
+```
+
+
+```elixir
+iex> c "custom_exception_demo.exs"
+...
+[CustomExceptionDemo, CustomExceptionDemo.Controller, CustomExceptionDemo.Model,
+ CustomExceptionDemo.Model.AuthentificationError,
+ CustomExceptionDemo.Model.AuthorizationError,
+ CustomExceptionDemo.Model.SchemeValidationError]
+
+iex> alias CustomExceptionDemo, as: C
+CustomExceptionDemo
+
+iex> C.request_1()
+%{data: %{a: 42}, token: "aaa"}
+
+# проверяем happy path доставая обьект запроса из ф-и генерящий sample
+iex> C.request_1() |> C.Controller.handle()
+{200, 42}
+
+#
+iex> %{data: %{a: 500}, token: "aaa"} |> C.Controller.handle()
+{200, 500
+
+iex> %{data: %{a: "Hi"}, token: "aaa"} |> C.Controller.handle()
+{200, "Hi"}
+```
+
+дописываем остальные функции для получения других исключений
+```elixir
+  # request sample for happy path
+  def request_1, do: %{token: "aaa", data: %{a: 42}}
+
+  # request sample for AuthorizationError
+  def request_2, do: %{token: "ccc", data: %{a: 42}}
+
+  # request sample for AuthentificationError
+  def request_3, do: %{token: "bbb", data: %{a: 42}}
+
+  # request sample for SchemeValidationError
+  def request_4, do: %{token: "aaa"}
+
+  # request sample for Internal Server Error
+  def request_5, do: %{token: "aaa", data: %{a: 100}}
+```
+
+
+```elixir
+iex> C.request_2() |> C.Controller.handle()
+{403, "AuthentificationError: invalid token"}
+
+iex> C.request_3() |> C.Controller.handle()
+{403, "AuthorizationError: role guest is not allowed to do action reconfigure"}
+
+iex> C.request_4() |> C.Controller.handle()
+{409, "SchemeValidationError: data does not match schema some_schema.json"}
+
+iex> C.request_5() |> C.Controller.handle()
+** (RuntimeError) somethign happend
+    custom_exception_demo.exs:66: CustomExceptionDemo.Controller.do_something_useful/1
+    custom_exception_demo.exs:28: CustomExceptionDemo.Controller.handle/1
+    (elixir 1.18.3) src/elixir.erl:386: :elixir.eval_external_handler/3
+    (stdlib 5.2) erl_eval.erl:750: :erl_eval.do_apply/7
+    (elixir 1.18.3) src/elixir.erl:364: :elixir.eval_forms/4
+    (elixir 1.18.3) lib/module/parallel_checker.ex:120: Module.ParallelChecker.verify/1
+    (iex 1.18.3) lib/iex/evaluator.ex:336: IEx.Evaluator.eval_and_inspect/3
+    (iex 1.18.3) lib/iex/evaluator.ex:310: IEx.Evaluator.eval_and_inspect_parsed/3
+
+{500, "Internal Server Error"}
+```
+
+
+#### Summary - о подходе управления ControlFlow на кастомных исключениях
+
+Выше приведённый код из custom_exception_demo.exs это типичный пример кода
+который могуть писать разработчики пришедшие в ФП и в Эликсир в частности из
+других языков, где для управления ControlFlow принято использовать исключения
+(Java, Python) Эликсир даём возможность тем что привык к такому стилю писать
+подобный код, хотя делать так не рекомендуется. В эликсире есть более удобный
+способ делать ControlFlow вообще без исключений. (Это тема 9го урока)
+
+
+
