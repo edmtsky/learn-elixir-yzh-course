@@ -27,5 +27,6 @@
 
 # compiled elixir code
 *.beam
+_build
 
 doc/hidden/
