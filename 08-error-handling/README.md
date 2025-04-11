@@ -1,5 +1,11 @@
 ## Урок 8 Обработка ошибок
 
+- 08.01 Исключения
+- 08.02 Классы исключений
+- 08.03 Пользовательские типы исключений
+- 08.04 Defensive Programming vs Let It Crash
+
+
 ### Исключения
 
 о том, какие есть механики обработки и генерации исключений.
@@ -316,5 +322,420 @@ iex> File.read!("exeption_demo.exsXXX")
 в Erlang исключения для ControlFlow используются крайне редко, в Elixr как-то
 почаще, но всё равно лучше этого избегать в своём коде. В Elixir для этого
 есть и другие удобные механизмы, чтобы не использовать одни только исключения.
+
+
+
+## 08.02 Классы исключений
+
+курьёзная тонкость про перехват исключений
+который способ удивить при попытке отловить исключения, особенно в проде
+
+есть два способа "бросить" исключение: raise и throw
+
+```elixir
+iex> raise "boom!"
+** (RuntimeError) boom!
+    iex:1: (file)
+
+iex> throw "boom!2"
+** (throw) "boom!2"
+    iex:1: (file)
+```
+
+и есть два способа "ловить"(перехватывать) исключения: try-rescue & try-catch
+
+почему два способа кидать и ловить исключения?
+Опять Эрланг... В самой VM работает система исключений сделанная для Erlang-а
+Elixir поверх системы исключений Erlang построил свою систему исключений, но
+в некоторых моментах эрланговская система исключений "вылезает наружу" и
+причиняет "боль" тем, кто про неё не знает.
+
+- raise + try-rescue - это Elixir-овские исключения и способ их словить
+- throw + try-catch  - это Erlang-овские
+
+
+#### как устроена система исключений в Erlang
+
+есть три класса исключений:
+
+Exception classes(types) (Erlang):
+- :throw - уровень бизнес логики - что-то кастомное для программиста
+  их можно кидать и перехватывать в своём коде для ControlFlow но так делать
+  не рекомендуется.
+- :error - exceptional situations like panic
+  бросать можно, но перехватывать нет (технически можно, идеологически не надо).
+- :exit - это про многопоточку и взаимодействие Erlang-процессов друг с другом
+
+throw - позволяет кинуть эрланговское исключени
+может принимать значение любого типа хоть число хоть список:
+```elixir
+iex> throw(42)
+** (throw) 42
+    iex:1: (file)
+
+iex> throw([1,2,3])
+** (throw) [1, 2, 3]
+    iex:1: (file)
+```
+
+:erlang.error - чтобы кинуть исключения класса Error
+
+```elixir
+iex> :erlang.error(42)
+** (ErlangError) Erlang error: 42
+    iex:1: (file)
+
+iex> :erlang.error("boom!")
+** (ErlangError) Erlang error: "boom!"
+    iex:1: (file)
+```
+
+на деле throw тоже находится в модуле :erlang, просто она импортирована не явно
+поэтому можно обращаться напрямую.(без имени модуля) и доступ упрощен для
+удобства
+
+
+####  системе исключений в Elixir
+
+эликсир строит свою систему исключений поверх Эрланговской системы
+за основу бируться исключения класса(типа) :error, которые по идеи в Erlang
+должны быть panic-ой. Но в Elixir игнорируется эта идея, и поверх :error
+строится своя система исключений, которые обрабатываются через raise/try-rescue
+
+- :error - raise / rescue
+- :throw - throw / catch
+  осталось от Эрланга, и сам эликсировский код по идеи не должен
+  применять :throw, но оно может выскочить в эрланговских либах
+- :exit  - ... / catch
+
+Вот и получается что Эликсир поменял идеологию :error(panic) исключений и
+использует поверх них свои исключения для ControlFlow, а остальные две:
+:exit и :throw и не хотел бы применять но они достались в наследство от ерланг
+и никуда от них не деться, т.к. могут "просачиваються" из эрланговских либ.
+
+
+####  как всё это использовать на практике
+
+функция генерирующая разные исключения
+
+./exception_demo.exs
+```elixir
+defmodule ExceptionDemo do
+  def try_rescue(exc_type) do
+    try do
+      generate_exception(exc_type)
+    rescue
+      error in [MatchError, ArithmeticError] ->
+        IO.puts("clause 1, MatchError or ArithmenicError #{inspect(error)}")
+
+      error in [RuntimeError] ->
+        IO.puts("clause 2, RuntimeError #{inspect(error)}")
+
+      error ->
+        IO.puts("clause 3, unknown error #{inspect(error)}")
+    after
+      IO.puts("after is always called")
+    end
+  end
+
+  def generate_exception(:raise), do: raise("something happened")
+  def generate_exception(:throw), do: throw("something happened")
+  def generate_exception(:error), do: :erlang.error("something happened")
+  def generate_exception(:exit), do: exit(:something_happened)
+end
+
+```
+
+```elixir
+iex> alias ExceptionDemo, as: E
+ExceptionDemo
+
+iex> E.try_rescue(:raise)
+clause 2, RuntimeError %RuntimeError{message: "something happened"}
+after is always called
+:ok
+```
+
+```elixir
+iex> E.try_rescue(:throw)
+after is always called                         # block fater
+** (throw) "something happened"
+    exeption_demo.exs:25: ExceptionDemo.generate_exception/1
+    exeption_demo.exs:9: ExceptionDemo.try_rescue/1
+    iex:3: (file)
+```
+это исключени в консоли красное - т.е. оно не было перехвачено внашем коде.
+т.е. try-rescue не смог его перехватить
+но блок after - сработал
+
+```elixir
+iex> E.try_rescue(:error)
+clause 3, unknown error %ErlangError{original: "something happened", reason: nil}
+after is always called
+:ok
+```
+перехвачено. и тип - ErlangError а не RuntimeError
+
+```elixir
+iex> E.try_rescue(:exit)
+after is always called                     # block
+** (exit) :something_happened
+    exeption_demo.exs:27: ExceptionDemo.generate_exception/1
+    exeption_demo.exs:9: ExceptionDemo.try_rescue/1
+    iex:4: (file)
+```
+after - сработал, но исключение не было перехвачено в нашем коде.
+
+
+Выходит что эликсировский try-rescue
+может перехватывать
+ - raise                - это Эликсировская надстройка над Эрланговским :error
+ - :error
+но НЕ может перехватить
+- :throw
+- :exit
+
+
+```elixir
+    try do
+      # ...
+    catch
+      err_type, error ->
+      # такой странный паттерн матчинг работает только для try-catch
+        IO.puts("...")
+    end
+```
+
+```elixir
+defmodule ExceptionDemo do
+  # ...
+
+  def try_catch(exc_type) do
+    try do
+      generate_exception(exc_type)
+    catch
+      :throw, error ->
+        IO.puts("clause 1, error #{inspect(error)} type :throw")
+
+      :error, error ->
+        IO.puts("clause 2, error #{inspect(error)} type :error")
+
+      err_type, error ->
+        IO.puts("clause 3, unknown error #{inspect(error)} type #{err_type}")
+    after
+      IO.puts("after is always called")
+    end
+  end
+
+  def generate_exception(:raise), do: raise("something happened")
+  def generate_exception(:throw), do: throw("something happened")
+  def generate_exception(:error), do: :erlang.error("something happened")
+  def generate_exception(:exit), do: exit(:something_happened)
+end
+```
+
+- :raise -> :error
+```elixir
+iex> E.try_catch(:raise)
+clause 2, error %RuntimeError{message: "something happened"} type :error
+after is always called
+:ok
+
+
+iex> E.try_catch(:throw)
+clause 1, error "something happened" type :throw
+after is always called
+:ok
+
+
+iex> E.try_catch(:error)
+clause 2, error "something happened" type :error
+after is always called
+:ok
+
+
+iex> E.try_catch(:exit)
+clause 3, unknown error :something_happened type exit
+after is always called
+:ok
+```
+итог:
+try-catch перехватывает все 3 эрланговские типы исключений и эликсировское
+который по сути надстройка над эрланговским
+
+таким образом эрланговские исключение перехватываются только catch
+
+### мысли о том зачем так сделали
+Похоже у авторов эликсира была идея спрятать всю поднаготную эрланговских
+исключений :throw,:error, :exit, вообще забыв про :throw и :exit, построив
+поверх :error свою систему эликсировских  исключений, и работать только с ней.
+
+В суровой практике же выходит так что да можно работать только с эликсировским
+try-rescue, но ровно до тех пор пока не столкнёшься с не перехваченными
+эрланговскими исключениями (:throw и :exit)
+
+Чаще всего на этом набивают шишки когда делают GenServer.call где есть таймаут
+выбрасывающий эрланговское исключение. Причем вся фишка в том, что можно просто
+использовать веб-фреймворк Phoenix и его высокоуровневый код не используя
+такие низкоуровневые штуки как GenServer, но исключения эрланга могут долететь
+и до твоего кода и пролететь мимо эликсировского rescue
+
+## практика воспроизводим исключения эрлага для GenServer
+хотя это тема следующего курса о многопоточности и OTP но эта проблема настолько
+распостранена что стоит об этом знать прямо сейчас.
+
+```elixir
+defmodule MyGenServer do
+  use GenServer  # Базовый модуль для реализации generic серверного поведения
+  #   ^ макрос генерирующий дополнительный код нужный для GenServer
+
+  @impl true
+  def init(_) do  # реализует GenServer Behaviour
+    state = %{}
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:hello, data}, _from, state) do # Обработчик входящий сообщений
+    IO.puts("MyGenServer got message :hello with data #{inspect(data)}")
+    response = 42
+    {:reply, response, state}
+  end
+
+  def handle_call(:get_smthg, _from, state) do # Обработчик входящий сообщений
+    IO.puts("MyGenServer got message :get_smthg")
+    :timer.sleep(6000) # 6 sec, where default timeout to recive reponse is 5sec
+    response = 42
+    {:reply, response, state}
+  end
+end
+```
+
+```elixir
+iex> E.start_server
+{:ok, #PID<0.180.0>}
+```
+
+отправляем сообщение в запущенный GenServer
+```elixir
+iex> E.hello
+MyGenServer got message :hello with data 100
+42
+
+iex(4)> GenServer.call(MyGenServer, :get_smthg)
+MyGenServer got message :get_smthg
+# Здесь зависает на 5 секнуд после чеко выполдится исключение типа :exit :
+
+** (exit) exited in: GenServer.call(MyGenServer, :get_smthg, 5000)
+    ** (EXIT) time out
+    (elixir 1.18.3) lib/gen_server.ex:1128: GenServer.call/3
+    iex:4: (file)
+```
+а исключение :exit не будет отловлено через  try-rescue
+убеждаемся:
+
+
+
+```elixir
+defmodule ExceptionDemo do
+  # ....
+
+  # Запуск своего GenServer
+  def start_server() do
+    GenServer.start(MyGenServer, [], name: MyGenServer)
+  end
+
+  # Триггерит отправку сообщения :hello
+  def hello() do
+    GenServer.call(MyGenServer, {:hello, 100})
+  end
+
+  # Триггерит отправку сообщения :get_smthg
+  def get_smthg() do    # (+++)
+    try do
+      GenServer.call(MyGenServer, :get_smthg)
+    rescue # Наивная попытка перехватить исключение (здесь будет эрланговский :exit
+      error ->
+        IO.puts("got error #{inspect(error)}")
+        {:error, :timeout}
+    end
+  end
+end
+
+defmodule MyGenServer do
+  use GenServer  # Базовый модуль для реализации generic серверного поведения
+  #   ^ макрос генерирующий дополнительный код нужный для GenServer
+
+  @impl true
+  def init(_) do  # реализует GenServer Behaviour
+    state = %{}
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:hello, data}, _from, state) do # Обработчик входящий сообщений
+    IO.puts("MyGenServer got message :hello with data #{inspect(data)}")
+    response = 42
+    {:reply, response, state}
+  end
+
+  def handle_call(:get_smthg, _from, state) do # Обработчик входящий сообщений
+    IO.puts("MyGenServer got message :get_smthg")
+    :timer.sleep(6000) # 6 sec, where default timeout to recive reponse is 5sec
+    response = 42
+    {:reply, response, state}
+  end
+end
+```
+
+проверяем и убеждаемся что это не работает:
+
+```elixir
+iex(7)> E.get_smthg
+MyGenServer got message :get_smthg
+# таймаут на 6 секунд
+
+** (exit) exited in: GenServer.call(MyGenServer, :get_smthg, 5000)
+    ** (EXIT) time out
+    (elixir 1.18.3) lib/gen_server.ex:1128: GenServer.call/3
+    exeption_demo.exs:60: ExceptionDemo.get_smthg/0
+    iex:7: (file)
+```
+
+исправляю rescue на catch + изменяю паттер на "странный" но рабочий
+
+```elixir
+  def get_smthg() do
+    try do
+      GenServer.call(MyGenServer, :get_smthg)
+    # rescue
+    catch
+      _, error ->                                     # вместо error ->
+        IO.puts("got error #{inspect(error)}")
+        {:error, :timeout}
+    end
+  end
+```
+
+```elixir
+iex> r E                                   # перекомпиляция
+{:reloaded, [ExceptionDemo, MyGenServer]}
+
+iex> E.get_smthg
+MyGenServer got message :get_smthg
+# подвисает на 6 секунд и после выдаёт ошибку:
+got error {:timeout, {GenServer, :call, [MyGenServer, :get_smthg, 5000]}}
+{:error, :timeout}  # Это значение  которые мы сами и возвращае из своей ф-и
+```
+
+Итог - если значешь как работают исключения в Erlang и Elixir и то, что
+исключения можно ловить и с помощью try-rescue И с помощью try-catch то
+в нужном месте сможешь применить правильный способ и избежать глупых ошибок
+(rescue - "работает не всегда", а вот catch - всегда)
+
+а если разработчик об этом не знает - то будут и ошибки и удивление почему
+try-rescue не перехатывает ошибку :exit приходящую из таймаута GenServer
+
+"Потроха Эрланга Вылезают из-под капота Эликсира"(c)автор курса
 
 

@@ -47,6 +47,7 @@ elixirc word_count.ex && elixir word_count_test.exs
 - 05-list-n-recursion - коллекции и рекурсия
 - 06-hof - функции высшего порядка, модуль Stream и ленивые вычисления
 - 07-user-data-types - начало создания проекта и моделирование доменной области
+- 08-error-handling - обработка исключений
 
 # Refs
 
