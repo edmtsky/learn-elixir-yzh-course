@@ -1565,4 +1565,276 @@ Finished in 0.04 seconds (0.00s async, 0.04s sync)
 10 tests, 0 failures
 ```
 
+#### Solution-2
+
+
+```elixir
+defmodule Bookshop.Solution2 do
+  alias Bookshop.Model, as: M
+  alias Bookshop.Controller, as: C
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    # тот же код что в Solution1
+  end
+end
+```
+
+```elixir
+defmodule Bookshop.SolutionTest do
+  use ExUnit.Case
+  alias Bookshop.Model, as: M
+  # alias Bookshop.Solution1, as: S
+  alias Bookshop.Solution2, as: S     # (+)
+
+  # сами тесты без изменений
+```
+
+обычно считается примемлимым делать уровень вложенности до 2х
+у нас же здесь, вложенность 5.
+
+lib/solution2.ex
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            case C.validate_address(data["address"]) do
+              {:ok, address} ->
+                data["books"]
+                |> Enum.map(&C.validate_book/1)
+                |> Enum.reduce({[], nil}, fn
+                  {:ok, book}, {books, nil} -> {[book | books], nil}
+                  {:error, error}, {books, nil} -> {books, {:error, error}}
+                  _maybe_book, acc -> acc
+                end)
+                |> case do
+                  {books, nil} ->
+                    {:ok, M.Order.create(user, address, books)}
+
+                  {_, error} ->
+                    error
+                end
+
+              {:error, error} ->
+                {:error, error}
+            end
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+```
+
+- некоторые могут смотреть коса на код уже с вложеностью 2 и больше.
+- и даже линтер Credo обраружив код в вложенностью 3 начнёт кидать ворнинги
+  что-то вроде перепеши "это", продлагая вынести вложенные case в отдельные ф-и
+  чтобы улучшить читаемость кода.
+
+первый кусок кода для выноса в отдельную ф-ю
+```elixir
+                data["books"]
+                |> Enum.map(&C.validate_book/1)
+                |> Enum.reduce({[], nil}, fn
+                  {:ok, book}, {books, nil} -> {[book | books], nil}
+                  {:error, error}, {books, nil} -> {books, {:error, error}}
+                  _maybe_book, acc -> acc
+                end)
+```
+
+
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            case C.validate_address(data["address"]) do
+              {:ok, address} ->
+                handle_books(data["books"])  # +++
+                |> case do
+                  {:ok, books} -> {:ok, M.Order.create(user, address, books)}
+                  error -> error
+                end
+
+              {:error, error} ->
+                {:error, error}
+            end
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # extracted code:
+  def handle_books(books) do
+    books # data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      {books, nil} -> {:ok, books}
+      {_, error} -> error
+    end
+  end
+```
+
+```elixir
+                handle_books(data["books"])
+                |> case do
+                  {:ok, books} -> {:ok, M.Order.create(user, address, books)}
+                  error -> error
+                end
+```
+упрощаем до
+```elixir
+                case handle_books(data["books"]) do
+                  {:ok, books} -> {:ok, M.Order.create(user, address, books)}
+                  error -> error
+                end
+```
+
+теперь уровень вложенности в Controller.handle меньше на 1
+запускаем тесты и проверям что ничего не сломалось и всё работает как надо.
+
+
+следущий шаг - уменьшаем вложеность дальше
+
+смотрим на код и думаем как уменьшить вложеность еще на 1
+```elixir
+                case handle_books(data["books"]) do
+                  {:ok, books} -> {:ok, M.Order.create(user, address, books)}
+                  error -> error
+                end
+```
+handle_books - вернёт при успехе список книг,..
+а чтобы создать Order нам нужен набор неких данных. значит...
+
+приходим к пониманию того, что у нас есть значения (user, address, books)
+можно их еще назвать "промежуточные результаты(значения)", которые будут нужны
+дальше для создания Order:
+
+```elixir
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+          #     ^(1a) -------------------------------------.
+            case C.validate_address(data["address"]) do #  |
+              {:ok, address} ->                         #  v
+              #     ^(2a) ---------------------------------------.
+                case handle_books(data["books"]) do #            v
+                  {:ok, books} -> {:ok, M.Order.create(  user, address, books)}
+                  #     ^(3a)                            ^(1b)  ^(2b)     ^(3b)
+                  #        `----------------------------------------------'
+                  error -> error
+                end
+
+              {:error, error} ->
+                {:error, error}
+            end
+
+          #....
+        end
+
+```
+- 1a значение user будет нужено в Oreder.create (1b)
+- 2a address нужено в 2b
+- 3а books нужено в 3b
+
+то есть если дальше выносить код из case в отдельные функции то надо как-то
+прокидывать эти промежуточные значения, например как аргументы функций
+и да, можно каждое промежуточное значение прокидывать как отдельный аргумент
+функции, но зная что проект будет развиваться и что шаги валидации, а значит и
+кол-во таких промежуточных значений может меняться, лучше выделить отдельную
+переменную state накапливать всё нужное в нём и дальше уже передавать это в
+функцию создающую Order.
+
+теперь будем выносить вот этот код в отдельную функцию
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            # --------------- >>>  уже здесь нам нужет будет state
+            case C.validate_address(data["address"]) do
+              {:ok, address} ->
+                case handle_books(data["books"]) do
+                  {:ok, books} -> {:ok, M.Order.create(user, address, books)}
+                  error -> error
+                end
+
+              {:error, error} ->
+                {:error, error}
+            end
+            # --------------- <<<
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+```
+
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            case C.validate_address(data["address"]) do
+              {:ok, address} ->
+                state = %{user: user, address: address}   # +
+                create_order(data["books"], state)        # +
+
+              {:error, error} ->
+                {:error, error}
+            end
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # def handle_books(books, state) do  # -
+  def create_order(books, state) do    # +
+    books # data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      # {books, nil} -> {:ok, books}
+      {books, nil} -> {:ok, M.Order.create(state.user, state.address, books)} # +
+      {_, error} -> error
+    end
+  end
+```
+
+
+26:46 наконец-то! подошли к сути solution-2 которое хотим сделать
+31:20 думаем как дальше уменьшаем вложенность
+31:40 выход на state - для передачи промежуточных значений в Order.create
+34:50 выносим код в handle_address
+
 
