@@ -31,6 +31,14 @@ defmodule FP do
     end
   end
 
+  @spec pipeline(any(), [m_fun()]) :: monada_result()
+  def pipeline(state, fun_list) do
+    Enum.reduce(fun_list, {:ok, state}, fn
+      f, {:ok, curr_state} -> f.(curr_state)
+      _f, {:error, error} -> {:error, error}
+    end)
+  end
+
   def try_bind do
     func = bind(&f1/1, &f2/1) |> bind(&f3/1) |> bind(&f4/1)
     func.(7)

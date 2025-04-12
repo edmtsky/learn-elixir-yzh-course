@@ -3329,3 +3329,257 @@ defmodule FP do
   (эта ФП-шная фишка уже "чутка покруче"
 
 
+
+
+## 09_06 Решение 5. Pipeline
+
+начнём с обуждения недостатков solution-4
+
+```elixir
+  def handle(data) do
+    f =
+      FP.bind(&step_validate_incoming_data/1, &step_validate_user/1)
+      |> FP.bind(&step_validate_address/1)
+      |> FP.bind(&step_validate_books/1)
+      |> FP.bind(&step_create_order/1)
+
+    f.(data) # Запуск композиции всех функций
+  end
+```
+Здесь:
+- ф-я FP.bind связывает две функции, давая на выходе новую функцию, которая
+  является композицей двух свазываемых ф-й. и эту новую функцию можно запустить
+- через bind мы строить цепочку из функций, получая композицию из всех ф-йй
+- f.(data) - запускаем саму обработку состоящую из композиции функций.
+
+для воплощения этого подхода потребовалось:
+- написать ф-и обёртки которые единообразно принимают state,
+  и возращают либо изменённый state обёрнутый в кортеж либо с :ok
+  либо с :error останавливая выполнение цепочки ф-й:
+
+```elixir
+  def step_validate_user(state) do
+    case C.validate_user(state.data["user"]) do
+      {:ok, user} ->
+        state = Map.put(state, :user, user)
+        {:ok, state}
+
+      error ->
+        error
+    end
+  end
+```
+
+В эликсир нет оператора bind как например а Haskell поэтому такое решение на
+функцииях binx выглядит не таким изящным как могло бы быть:
+```elixir
+  def handle(data) do
+    data
+    |> step_validate_incoming_data
+    >>= step_validate_user
+    >>= step_validate_address
+    >>= step_validate_books
+    >>= step_create_order
+  end
+```
+
+поэтому чаще используется такая вещь как pipeline
+
+идея pipeline - передать сразу список функций для связывыния, вместо того
+чтобы связывать их вот так вот попарно как в bind. А уже затем прогоним список
+переданных ф-ий через Enum.reduce, поочередно вызывая каждую из них.
+
+```elixir
+defmodule FP do
+
+  def pipeline(state, fun_list) do
+    Enum.reduce(fun_list, {:ok, state}, fn f, acc -> ... end)
+  end
+
+end
+```
+
+- state - начальное состоние которое будем передавать во все ф-и из fun_list
+- fun_list - список функций, которые нужно вызвать
+
+```elixir
+  def pipeline(state, fun_list) do
+    Enum.reduce(fun_list, {:ok, state}, fn
+      f, {:ok, curr_state} -> f.(curr_state)  # 1 clause
+      f, {:error, error} -> {:error, error}   # 2 clause
+    end)
+  end
+```
+
+пишем спеку (типы для ф-и)
+```elixir
+defmodule FP do
+  @spec pipeline( any(), [(any() -> {:ok, any()} | {:error, any()})]) ::  ...
+  #                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  #                     ^                      \ /
+  #               1     3                       2
+  def pipeline(state, fun_list) do
+    Enum.reduce(fun_list, {:ok, state}, fn
+      f, {:ok, curr_state} -> f.(curr_state)
+      f, {:error, error} -> {:error, error}
+    end)
+  end
+end
+```
+
+- 1. any() - входное значение (1й аргумент)
+- 2. тип одной функции передаваемая в список ф-ий для pipeline
+     (монодическая ф-я которая возращает либо :ok+state либо :error
+- 3. список таких монодический функций для выстраивания pipeline
+
+
+упростим спецификацию вынеся типы в @type
+```elixir
+defmodule FP do
+  @type successful() :: any()
+  @type error() :: any()
+  @type monada_result() :: {:ok, successful() | {:error, error()}}
+  @type m_fun() :: (any() -> monada_result())
+
+  @spec pipeline(any(), [m_fun()]) :: monada_result()
+  def pipeline(state, fun_list) do
+    Enum.reduce(fun_list, {:ok, state}, fn
+      f, {:ok, curr_state} -> f.(curr_state)
+      _f, {:error, error} -> {:error, error}
+    end)
+  end
+end
+```
+
+реализация solution-5 на pipeline
+
+```elixir
+defmodule Bookshop.Solution5 do
+  alias Bookshop.Model, as: M
+  alias Bookshop.Solution4, as: S4
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    FP.pipeline(data, [
+      &S4.step_validate_incoming_data/1,
+      &S4.step_validate_user/1,
+      &S4.step_validate_address/1,
+      &S4.step_validate_books/1,
+      &S4.step_create_order/1
+    ])
+  end
+end
+```
+
+- здесь не стали дублировать код тех же самых функций что уже нами описаны в
+  solution4 а импортировали их прямо от туда.
+
+по аналогии переводит solution_test.ex уже на 5-е решение и проверяем на
+валидность - все тесты проходят
+
+
+такой подход достаточно популярен в Эликисир, потому что такой же подход
+исп-ся например в либе `Plug` - эта либа часть веб-фреймворка `Phoenix`
+Plug - обрабатывает входящие http-запросы, прогоняя их через цепочки функций
+но обычно там используются не ф-ии, а макросы.
+когда пишут используя Phoenix можно определить шаги, через которые должна
+проходить обработка http запроса (авторизация, десериализация Json и т.д)
+до того как быть отданной в контроллер.
+
+и принцип работы в биб-ке Plug точно такой же как в только что нами реализованной
+функции pipeline
+
+- задаются "шаги" функции(действия) которые будут выполняться в цепочке действий
+- если ок то цепочка передаётся к след. шагу
+- если ошибка - то цепочка вызовов прерывается и Plug отправляет например код
+  ошибки.
+- через цепочку проходит некий state.
+  в биб-ке State он формализован структурой данных Plug.Conn
+  в этой структуре содержиться всё что есть в Http-запросе:
+  uri, query, params, body_params, headers и прочее
+  так же есть всё что нужно для http-ответа: status, body, headers и проч.
+
+
+### улучшаем тесты.
+делаем так чтобы для всех solution-* прогонялись один и тот же набор тестов
+
+test/support/my_assertions.ex
+```elixir
+defmodule MyAssertions do
+  use ExUnit.Case # чтобы был доступен макрос assert
+
+  def assert_many(modules, fun, args, expected_result) do
+  #                1        2     3        4
+    Enum.each(modules, fn module ->
+      got_result = Kernel.apply(module, fun, args)
+      assert got_result == expected_result
+    end)
+  end
+end
+```
+
+- 1 список модулей из которых нужно зывать одно и ту же фун-ию
+- 2 имя функции (атом) для вызова
+- 3 список аргументов для передачи в вызываемую ф-ю
+- 4 ожидаемый результат
+
+Это способ динамически вызвать функцию по имени её модуля и по имени самой
+функции в этом модуле, передавая ей заданный список аргументов
+```elixir
+      got_result = Kernel.apply(module, fun, args)
+```
+
+```elixir
+defmodule Bookshop.SolutionTest do
+  use ExUnit.Case
+  alias Bookshop.Model, as: M
+
+  @test_solutions [         # список модулей для вызова
+    Bookshop.Solution1,
+    Bookshop.Solution2,
+    Bookshop.Solution3,
+    Bookshop.Solution4,
+    Bookshop.Solution5,
+  ]
+  alias Bookshop.Solution5, as: S # пока так чтобы остальные тесты не падали
+
+  test "create order" do
+    # .. пока без измнений
+  end
+
+  test "invalid incoming data" do
+    valid_data = TestData.invalid_data()
+
+    # assert S.handle(valid_data) == {:error, :invalid_incoming_data}
+
+    MyAssertions.assert_many(   # < добавляем свою функцию
+      @test_solutions,          # здесь все наши модули
+      :handle,                  # это имя вызываемой функции  S.handle(..)
+      [valid_data],             # аргументы в фнукцию всегда в списке
+      {:error, :invalid_incoming_data} # Ожидаемый результат
+    )
+  end
+
+  # остальные тесты без изменений
+end
+```
+
+запускаем проверям - работает
+```sh
+ mix test
+Running ExUnit with seed: 810175, max_cases: 8
+
+.....
+20:18:42.896 [error] InvalidIncomingData
+.
+20:18:42.902 [error] UserNotFound Nemean
+..
+20:18:42.903 [error] InvalidAddress wrong
+.
+20:18:42.906 [error] BookNotFound Functional Web Development with Elixir, OTP and Phoenix Lance Halvorsen
+.
+Finished in 0.05 seconds (0.00s async, 0.05s sync)
+10 tests, 0 failures
+```
+
+

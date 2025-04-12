@@ -2,8 +2,6 @@ defmodule Bookshop.Solution4 do
   alias Bookshop.Model, as: M
   alias Bookshop.Controller, as: C
 
-  alias Bookshop.Controller, as: C
-
   @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
   def handle(data) do
     f =
