@@ -1,8 +1,8 @@
 defmodule BookshopTest do
   use ExUnit.Case
-  doctest Bookshop
+  # require TestData
 
-  test "greets the world" do
-    assert Bookshop.hello() == :world
+  test "data" do
+    assert Bookshop.test_data() == TestData.valid_data()
   end
 end

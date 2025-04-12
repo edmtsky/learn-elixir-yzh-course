@@ -5,7 +5,7 @@ defmodule Bookshop.Solution1 do
 
   @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
   def handle(data) do
-    case C.validate_incomming_data(data) do
+    case C.validate_incoming_data(data) do
       {:ok, data} ->
         case C.validate_user(data["user"]) do
           {:ok, user} ->
@@ -18,7 +18,8 @@ defmodule Bookshop.Solution1 do
 
                   {:error, error}, {books, nil} -> {books, {:error, error}}
 
-                  _maybe_book, {_, err} = acc -> acc
+                  #_maybe_book, {_, err} = acc -> acc
+                  _maybe_book, acc -> acc
                   end)
                 |> case do
                   {books, nil} ->

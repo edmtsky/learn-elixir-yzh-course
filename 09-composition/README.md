@@ -252,7 +252,7 @@ iex> 10 |> C.f1 |> C.f2 |> C.f3(10) |> C.f4() |> elem(1) |> C.f1()
 (стразу через спецификацию типов @spec)
 
 ```elixir
-@spec validate_incomming_data(map()) :: {:ok, map()} | {:error, :invalid_incomming_data}
+@spec validate_incoming_data(map()) :: {:ok, map()} | {:error, :invalid_incoming_data}
 @spec validate_user(name :: String.t()) :: {:ok, User.t()} | {:error, :user_not_found}
 @spec validate_address(String.t()) :: {:ok, Address.t()} | {:error, :invalid_address}
 @spec validate_book(map()) :: {:ok, Book.t()} | {:error, :book_not_found}
@@ -266,7 +266,7 @@ iex> 10 |> C.f1 |> C.f2 |> C.f3(10) |> C.f4() |> elem(1) |> C.f1()
 
 ```elixir
 json
-|> validate_incomming_data()
+|> validate_incoming_data()
 |> validate_user()
 |> validate_address()
 |> validate_book()     # list!
@@ -276,7 +276,7 @@ json
 
 но увы у нас в системе и коде возможны ветвления
 ```elixir
-{:ok, map()} | {:error, :invalid_incomming_data}
+{:ok, map()} | {:error, :invalid_incoming_data}
 ```
 а оператор pipe это вообще не про ветвление
 
@@ -433,7 +433,7 @@ end
 
 функции валидации:
 ```elixir
-@spec validate_incomming_data(map()) :: {:ok, map()} | {:error, :invalid_incomming_data}
+@spec validate_incoming_data(map()) :: {:ok, map()} | {:error, :invalid_incoming_data}
 @spec validate_user(name :: String.t()) :: {:ok, User.t()} | {:error, :user_not_found}
 @spec validate_address(String.t()) :: {:ok, Address.t()} | {:error, :invalid_address}
 @spec validate_book(map()) :: {:ok, Book.t()} | {:error, :book_not_found}
@@ -469,12 +469,12 @@ defmodule Bookshop.Controller do
   def handle(request) do
   end
 
-  @spec validate_incomming_data(map()) :: {:ok, map()} | {:error, :invalid_incomming_data}
-  def validate_incomming_data(data) do
+  @spec validate_incoming_data(map()) :: {:ok, map()} | {:error, :invalid_incoming_data}
+  def validate_incoming_data(data) do
     if rand_success() do
       {:ok, data}
     else
-      {:error, :invalid_incomming_data}
+      {:error, :invalid_incoming_data}
     end
   end
 
@@ -518,11 +518,11 @@ iex -S mix
 ```elixir
 iex(1)> alias Bookshop, as: B
 Bookshop
-iex(2)> B.Controller.validate_incomming_data(42)
+iex(2)> B.Controller.validate_incoming_data(42)
 {:ok, 42}
 ...
-iex(17)> B.Controller.validate_incomming_data(42)
-{:error, :invalid_incomming_data}
+iex(17)> B.Controller.validate_incoming_data(42)
+{:error, :invalid_incoming_data}
 
 iex(23)> B.Controller.validate_user("Attis")
 {:ok, %Bookshop.Model.User{id: "Attis", name: "Attis"}}
@@ -579,7 +579,7 @@ defmodule Bookshop.Solution1 do
 
   @spec handle(map()) :: {:ok, M.Order.t()} | {:error, error}
   def handle(data) do
-    case C.validate_incomming_data(data) do
+    case C.validate_incoming_data(data) do
       {:ok, data} ->
         do_next_validation() # ...
       {:error, error} -> {:error, error}
@@ -591,7 +591,7 @@ end
 следующий шаг - 2я валидация
 ```elixir
   def handle(data) do
-    case C.validate_incomming_data(data) do
+    case C.validate_incoming_data(data) do
       {:ok, data} ->
         case C.validate_user(data["user"]) do     # +
           {:ok, user} ->                          # +
@@ -607,7 +607,7 @@ end
 3й шаг валидации - глубина увеличивается
 ```elixir
   def handle(data) do
-    case C.validate_incomming_data(data) do
+    case C.validate_incoming_data(data) do
       {:ok, data} ->
         case C.validate_user(data["user"]) do
           {:ok, user} ->
@@ -659,7 +659,7 @@ iex> B.Solution1.handle(data)
 
 # просто "долбим" запросы и проверяем чтобы все три валидатора выдавали фейл:
 iex> B.Solution1.handle(data)
-{:error, :invalid_incomming_data}
+{:error, :invalid_incoming_data}
 
 
 iex> B.Solution1.handle(data)
@@ -673,7 +673,7 @@ iex> B.Solution1.handle(data)
 
 ```elixir
   def handle(data) do
-    case C.validate_incomming_data(data) do
+    case C.validate_incoming_data(data) do
       {:ok, data} ->
         case C.validate_user(data["user"]) do
           {:ok, user} ->
@@ -930,7 +930,7 @@ iex> B.Solution1.handle(data)
 {:error, :book_not_found}
 
 iex> B.Solution1.handle(data)
-{:error, :invalid_incomming_data}
+{:error, :invalid_incoming_data}
 ```
 
 ### подводим итог сделанного
@@ -952,5 +952,505 @@ iex> B.Solution1.handle(data)
 
 Другими словами мы пришли к осознанию, что хотя такой код работает но...
 никуда не годиться и нужно искать лучшее решение.
+
+
+
+## 09.03 Решение 2. Каждый case в отдельной функции
+
+Здесь мы переходим от такого solution-1:
+```elixir
+defmodule Bookshop.Solution1 do
+
+  alias Bookshop.Model, as: M
+  alias Bookshop.Controller, as: C
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            case C.validate_address(data["address"]) do
+              {:ok, address} ->
+                data["books"]
+                |> Enum.map(&C.validate_book/1)
+                |> Enum.reduce({[], nil}, fn
+                  {:ok, book}, {books, nil} -> {[book | books], nil}
+
+                  {:error, error}, {books, nil} -> {books, {:error, error}}
+
+                  _maybe_book, {_, err} = acc -> acc
+                  end)
+                |> case do
+                  {books, nil} ->
+                    {:ok, M.Order.create(user, address, books)}
+                  {_, error} -> error
+                end
+
+              {:error, error} -> {:error, error}
+            end
+
+          {:error, error} -> {:error, error}
+        end
+
+      {:error, error} -> {:error, error}
+    end
+  end
+end
+```
+
+к более поддерживаемому решению.
+
+- переход будем делать через рефакторинг.
+- чтобы можно было делать рефакторинг нужно чтобы код был покрыт тестами
+  без стестов скорее всего что-нить да сломаем
+
+то есть все возможные варинаты ControlFlow т.е. все возможные ошибки и happy path
+должны быть покрыты тестами.
+проблема. ф-и валидации работают рандомно. (через rand_success)
+а он всегда выдаёт непредсказуемые результаты.
+выход - делать детерминированную валидацию:
+ - то есть захардкодим валидные и не валидные значения для сущностей
+   юзер, адрес, книга.
+   (сделаем валидацию чуть более приблеженную к реальности)
+
+затем покроим всё solution-1 тестами и тогда уже можно будет
+переходить от solution-1 к solution-2 через пошаговый рефакторинг.
+
+Нам нужны будут два вида тестов:
+- юнит тесты, на все наши функции валидации входных данных
+  - на каждую ф-ю валидации нужно подать успешный вариант и убедиться в :ok
+  - и еще фейловый вариант который возращает :error
+- интеграционные тесты на ф-ю Controller.handle
+  - в эту ф-ю будем подавать всю структуру data в разных вариантах и убеждаться
+  что возращается нужная ветка. - либо happy path либо конкретная ошибка.
+
+вот и получаем что
+- нужно как минимум два модуля с тестами
+  - один с юнит тестами на ф-и валидации
+  - второй с интеграционными тестами на solution
+
+да можно было бы юнит-тесты на ф-и валидации в Controller и не писать
+дескоть "для сокращения времени". Но на деле всё равно начинать от юнит-тестов
+будет удобнее, т.к. куски кода и данных из юнит тестов потом будем использовать
+в интеграционных тестах для формирования data в ф-ю handle
+
+
+### изучаем сгенерированные тесты в нашем проекте
+```sh
+tree test
+
+test
+├── bookshop_test.exs
+└── test_helper.exs
+```
+
+test/test_helper.exs
+```elixir
+ExUnit.start()
+```
+этот хэлпер просто запускает тестовый фреймворк `ExUnit`
+
+заглушка теста для главного модуля (будет падать)
+```elixir
+defmodule BookshopTest do
+  use ExUnit.Case
+  doctest Bookshop    # тесты на документацию, это другая тема. пока убираем
+
+  test "greets the world" do
+    assert Bookshop.hello() == :world # Надо исправлять чтобы не падало
+  end
+end
+```
+
+нам нужны solution_tesst.exs и controller_test.exs
+
+
+```elixir
+defmodule BookshopTest do
+  use ExUnit.Case
+  doctest Bookshop    # тесты на документацию, это другая тема. пока убираем
+
+  test "greets the world" do
+    assert Bookshop.hello() == :world
+  end
+end
+```
+
+- Bookshop.test_data() - возращает Map с тестовыми данными, которые по сути нам
+нужны будут везде - во всех тестах и в юнит и в интеграционных.
+
+вообще есть такие либы, для генерации такого рода объектов-сэмплов, которые
+нужны для тестов и которые переиспользуются в нескольких местах(тестов)
+
+пока для простоты можем просто сделать отдельный модуль и разместить в него
+функции для возрата нужных нам значений.
+
+
+./test/test_data.ex
+```elixir
+defmodule TestData do
+  def valid_data() do     # просто копия из bookshop.ex
+    %{
+      "user" => "Attis",
+      "address" => "Freedom str 7/42 City Country",
+      "books" => [
+        %{
+          "title" => "Domain Modeling Made Functional",
+          "author" => "Scott Wlaschin" },
+        %{
+          "title" => "Distributed systems for fun and profit",
+          "author" => "Mikito Takada"},
+        %{
+          "title" => "Adopting Elixir",
+          "author" => "Marx, Valim, Tate"
+        },
+      ]
+    }
+  end
+end
+```
+
+> обрати внимание на расширение ex в test_data.ex
+данный файл test_data.ex будем переиспользовать в разных нестах поэтому нужно
+чтобы он компирировался. Сами же тесты они exs - скрипты, которые не будут
+компилироваться, а сразу интерпретироваться.
+
+теперь чтобы этот модуль был доступен в тестах его нужно явно "подключить"
+
+сделать это по-быстрому можно через тест-хэлпер:
+
+./test/test_helper.exs
+```elixir
+ExUnit.start()
+Code.require_file("test_data.ex", __DIR__)   # <<< подключение модуля
+```
+
+но более правильный способ - переместить этот модуль в каталог `test/support`
+и прописать дополнительные пути компиляции elixirc_paths в mix.exs так чтобы
+этот модуль компилировался и был доступен в Mix.evn == :test (в тестах)
+
+mix.exs:
+```elixir
+defmodule Bookshop.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :bookshop,
+      version: "0.1.0",
+      elixir: "~> 1.18",
+      start_permanent: Mix.env() == :prod,
+      deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env)               # +
+    ]
+  end
+
+  # ...
+  defp elixirc_paths(:test), do: ["lib", "test/support"]  # +
+  defp elixirc_paths(_), do: ["lib"]                      # +
+end
+```
+и при этом сам ex модуль помещаем в каталог test/support:
+```sh
+tree test
+test
+├── bookshop_test.exs
+├── support
+│   └── test_data.ex     # <<<
+└── test_helper.exs
+```
+
+и уже в конфиге прописываем новый путь для компиляции:
+```
+  elixirc_path: elixirc_paths(Mix.env)
+  ...
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+end
+```
+Mix.evn - возращает атом соответствующий текущему окружению :dev :test :prod
+а внизу описываем clause(тела функций) elixirc_paths где и задаём дополнительный
+каталог test/support
+
+
+и теперь можно использовать
+(пример в уже созданном(mix new...) тестовом модуле:
+
+```elixir
+defmodule BookshopTest do
+  use ExUnit.Case
+
+  test "data" do
+    assert Bookshop.test_data() == TestData.valid_data()
+  end
+end
+```
+
+> как создать тестовый модуль для тестируемого модуля
+создаём тестовый модуль с таким же именем как у тестируемого, в test каталоге
+и добавляя к имени суффикс Test
+
+
+первый тест "happy path" используя сэмплы из модуля TestData
+
+./test/controller_test.exs
+```elixir
+defmodule Bookshop.ControllerTest do
+  #                          ^^^^
+  use ExUnit.Case
+  alias Bookshop.Controller, as: C
+
+  test "validate incoming data" do # (1)
+    valid_data = TestData.valid_data()
+    assert C.validate_incoming_data(valid_data) == {:ok, valid_data}  # (2)
+  end
+end
+```
+- 1. test - это макрос принимающий на вход название теста и его "тело"
+  с разными утверждениями(assert-ами)
+- 2. assert(утверждение) для тестирования первой ветки кода в ф-и
+  validate_incoming_data
+
+Есть разные подхоты к тому, как писать ассерты:
+- один ассерт на одну тестовую функцию(тест)
+- все возможные проверки(ассерты) на одну проверяемую функцию.
+  когда в одной тестовой ф-и описываем через ассерты все ветки кода в
+  проверяемой функции:
+
+```elixir
+defmodule Bookshop.ControllerTest do
+  use ExUnit.Case
+  alias Bookshop.Controller, as: C
+
+  test "validate incoming data" do
+    valid_data = TestData.valid_data()
+    assert C.validate_incoming_data(valid_data) == {:ok, valid_data}
+
+    # ассерт для второй ветки кода, - кейс с ошибкой
+    invalid_data = TestData.invalid_data()
+    assert C.validate_incoming_data(invalid_data) == {:error, :invalid_incoming_data}
+  end
+end
+```
+теперь нам нужен сэмпл TestData.invalid_data():
+```elixir
+defmodule TestData do
+
+  def valid_data() do
+    # ...
+  end
+
+  def invalid_data() do  # +
+    %{
+      "guest" => "Attis",
+      "address" => "Freedom str 7/42 City Country"
+    }
+  end
+end
+```
+
+но так как пока у нас валидация работает на случаных числах то тесты чаще
+будут падать на ассертах, нежели проходить
+```elixir
+  def validate_incoming_data(data) do
+    if rand_success() do                 # 90% успеха и 10% неудач
+      {:ok, data}
+    else
+      {:error, :invalid_incoming_data}
+    end
+  end
+```
+
+запускаем тесты
+```sh
+mix test
+```
+т.к. валидация пока число на рандоме, чаще тесты будут падать.
+```sh
+Running ExUnit with seed: 65023, max_cases: 8
+
+.
+
+  1) test Controller validate incoming data (Bookshop.ControllerTest)
+     test/controller_test.exs:8
+     Assertion with == failed
+     code:  assert C.validate_incoming_data(invalid_data) == {:error, :invalid_incoming_data}
+     left:  {:ok, %{"address" => "Freedom str 7/42 City Country", "admin" => "Attis"}}
+     right: {:error, :invalid_incoming_data}
+     stacktrace:
+       test/controller_test.exs:13: (test)
+
+
+Finished in 0.03 seconds (0.00s async, 0.03s sync)
+2 tests, 1 failure
+```
+
+но всё же можно подловить момент когда для невалидного значения
+валидация зафейлиться(10%) - тогда тест пройдёт
+```sh
+mix test
+Running ExUnit with seed: 528467, max_cases: 8
+
+..
+Finished in 0.01 seconds (0.00s async, 0.01s sync)
+2 tests, 0 failures
+```
+
+> пишем тесты на все остальные ф-и валидации
+
+```elixir
+defmodule Bookshop.ControllerTest do
+  use ExUnit.Case
+  alias Bookshop.Controller, as: C
+  alias Bookshop.Model, as: M
+
+
+  # @tag :pending
+  test "validate incoming data" do
+    valid_data = TestData.valid_data()
+    assert C.validate_incoming_data(valid_data) == {:ok, valid_data}
+
+    invalid_data = TestData.invalid_data()
+    assert C.validate_incoming_data(invalid_data) == {:error, :invalid_incoming_data}
+  end
+
+  test "validate user" do
+    assert C.validate_user("Joe") == {:ok, %M.User{id: "Joe", name: "Joe"}}
+    assert C.validate_user("Nemean") == {:error, :user_not_found}
+  end
+
+  test "validate address" do
+    assert C.validate_address("City State") == {
+        :ok,
+        %M.Address{state: nil, city: nil, other: "City State"}
+    }
+    assert C.validate_address("42") == {:error, :invalid_address}
+  end
+
+  test "validate booke" do
+    valid_book = TestData.valid_book()
+    assert C.validate_address(valid_book) == {
+        :ok,
+        %M.Book{
+          title: valid_book["tile"],
+          author: valid_book["author"]
+        }
+    }
+
+    invalid_book = TestData.invalid_book()
+    assert C.validate_address(invalid_book) == {:error, :book_not_found}
+  end
+end
+```
+
+```elixir
+defmodule TestData
+  # ...
+  def valid_book do
+    %{
+      "title" => "Adopting Elixir",
+      "author" => "Marx, Valim, Tate"
+    }
+  end
+
+  # книга которой нет на складе - поэтому она считается не валидной
+  def invalid_book do
+    %{
+      "title" => "Functional Web Development with Elixir, OTP and Phoenix",
+      "author" => "Lance Halvorsen"
+    }
+  end
+```
+тут сэмплы скорее про то, что есть ли такая книга на сладе, а не про то
+все ли поля обьекта пришли или не все.
+
+
+переписываем
+```elixir
+defmodule Controller do
+  def validate_incoming_data(data) do
+    if rand_success() do
+      {:ok, data}
+    else
+      {:error, :invalid_incoming_data}
+    end
+  end
+```
+
+просто через паттер матчинг проверяем прямо в сигнатуре функции что все
+нужные ключи есть.
+```elixir
+  @spec validate_incoming_data(map()) :: {:ok, map()} | {:error, :invalid_incoming_data}
+  def validate_incoming_data(%{"user" => _, "address" => _, "books" = _} = data) do
+    {:ok, data}
+  end
+  def validate_incoming_data(_) do
+    {:error, :invalid_incoming_data}
+  end
+```
+здесь идея валидации в том, чтобы проверять наличеи основных ключей, но не
+проверяя всё. Обычно для валидации(проверки) всех уровней вложенности - есть
+спец либы, и руками это никто не проверят - это слишком муторно и долго.
+Такие вещи не валидируют руками - пользуются специальными библиотеками, которые
+умеют валидировать данные по заданной схеме.
+
+
+```elixir
+  # Emulation of the check in the database
+  @existing_users ["Joe", "Alice", "Bob" ]
+
+  # ...
+
+  def validate_user(name) do
+    if name in @existing_users do
+      {:ok, %M.User{id: name, name: name}}
+    else
+      {:error, :user_not_found}
+    end
+  end
+```
+
+по аналогии изменяем все остальные валидаторы
+```elixir
+defmodule Bookshop.Controller do
+  alias Bookshop.Model, as: M
+
+  # ..
+
+  def validate_address(data) do
+    if String.length(data) > 5 do
+      {:ok, %M.Address{other: data}}
+    else
+      {:error, :invalid_address}
+    end
+  end
+
+  @existing_authors ["Scott Wlaschin", "Mikito Takada", "Marx, Valim, Tate" ]
+
+  def validate_book(%{"author" => author} = data) do
+    if author in @existing_authors do
+      {:ok, %M.Book{title: data["title"], author: data["author"]}}
+    else
+      {:error, :book_not_found}
+    end
+  end
+
+  # больше эта функция не нужна
+  # def rand_success() do
+  #   Enum.random(1..10) > 1
+  # end
+
+```
+
+```sh
+mix test
+Running ExUnit with seed: 599907, max_cases: 8
+
+.....
+Finished in 0.03 seconds (0.00s async, 0.03s sync)
+5 tests, 0 failures
+```
 
 
