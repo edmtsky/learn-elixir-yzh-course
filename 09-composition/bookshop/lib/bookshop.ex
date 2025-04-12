@@ -19,7 +19,7 @@ defmodule Bookshop do
         %{
           "title" => "Adopting Elixir",
           "author" => "Marx, Valim, Tate"
-        },
+        }
       ]
     }
   end

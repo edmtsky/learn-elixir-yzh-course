@@ -1,5 +1,4 @@
 defmodule Bookshop.Solution1 do
-
   alias Bookshop.Model, as: M
   alias Bookshop.Controller, as: C
 
@@ -15,26 +14,28 @@ defmodule Bookshop.Solution1 do
                 |> Enum.map(&C.validate_book/1)
                 |> Enum.reduce({[], nil}, fn
                   {:ok, book}, {books, nil} -> {[book | books], nil}
-
                   {:error, error}, {books, nil} -> {books, {:error, error}}
-
-                  #_maybe_book, {_, err} = acc -> acc
+                  # _maybe_book, {_, err} = acc -> acc
                   _maybe_book, acc -> acc
-                  end)
+                end)
                 |> case do
                   {books, nil} ->
                     {:ok, M.Order.create(user, address, books)}
-                  {_, error} -> error
+
+                  {_, error} ->
+                    error
                 end
 
-              {:error, error} -> {:error, error}
+              {:error, error} ->
+                {:error, error}
             end
 
-          {:error, error} -> {:error, error}
+          {:error, error} ->
+            {:error, error}
         end
 
-      {:error, error} -> {:error, error}
+      {:error, error} ->
+        {:error, error}
     end
   end
-
 end

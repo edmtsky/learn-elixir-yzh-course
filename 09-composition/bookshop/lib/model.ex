@@ -1,5 +1,4 @@
 defmodule Bookshop.Model do
-
   defmodule User do
     defstruct [:id, :name]
   end

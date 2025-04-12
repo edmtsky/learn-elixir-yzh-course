@@ -1,5 +1,4 @@
 defmodule TestData do
-
   def valid_data() do
     %{
       "user" => "Joe",
@@ -27,7 +26,6 @@ defmodule TestData do
       "address" => "Freedom str 7/42 City Country"
     }
   end
-
 
   def valid_book do
     %{

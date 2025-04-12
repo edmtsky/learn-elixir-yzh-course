@@ -2,8 +2,8 @@ defmodule Bookshop.Controller do
   alias Bookshop.Model, as: M
 
   # Emulation of the check in the database
-  @existing_users ["Joe", "Alice", "Bob" ]
-  @existing_authors ["Scott Wlaschin", "Mikito Takada", "Marx, Valim, Tate" ]
+  @existing_users ["Joe", "Alice", "Bob"]
+  @existing_authors ["Scott Wlaschin", "Mikito Takada", "Marx, Valim, Tate"]
 
   def handle(request) do
     Bookshop.Solution1.handle(request)
@@ -13,6 +13,7 @@ defmodule Bookshop.Controller do
   def validate_incoming_data(%{"user" => _, "address" => _, "books" => _} = data) do
     {:ok, data}
   end
+
   def validate_incoming_data(_) do
     {:error, :invalid_incoming_data}
   end
@@ -47,5 +48,4 @@ defmodule Bookshop.Controller do
   # def rand_success() do
   #   Enum.random(1..10) > 1
   # end
-
 end

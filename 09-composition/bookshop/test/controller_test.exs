@@ -3,7 +3,6 @@ defmodule Bookshop.ControllerTest do
   alias Bookshop.Controller, as: C
   alias Bookshop.Model, as: M
 
-
   # @tag :pending
   test "validate incoming data" do
     valid_data = TestData.valid_data()
@@ -20,21 +19,23 @@ defmodule Bookshop.ControllerTest do
 
   test "validate address" do
     assert C.validate_address("City State") == {
-        :ok,
-        %M.Address{state: nil, city: nil, other: "City State"}
-    }
+             :ok,
+             %M.Address{state: nil, city: nil, other: "City State"}
+           }
+
     assert C.validate_address("42") == {:error, :invalid_address}
   end
 
   test "validate book" do
     valid_book = TestData.valid_book()
+
     assert C.validate_book(valid_book) == {
-        :ok,
-        %M.Book{
-          title: valid_book["title"],
-          author: valid_book["author"]
-        }
-    }
+             :ok,
+             %M.Book{
+               title: valid_book["title"],
+               author: valid_book["author"]
+             }
+           }
 
     invalid_book = TestData.invalid_book()
     assert C.validate_book(invalid_book) == {:error, :book_not_found}
