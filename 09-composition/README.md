@@ -1565,9 +1565,12 @@ Finished in 0.04 seconds (0.00s async, 0.04s sync)
 10 tests, 0 failures
 ```
 
-#### Solution-2
+итак тесты готовы, покрывают все возможные случа а значит подготовка закончена
 
 
+#### Solution-2 начало реализации
+
+lib/solution2.ex
 ```elixir
 defmodule Bookshop.Solution2 do
   alias Bookshop.Model, as: M
@@ -2663,5 +2666,666 @@ end
 ```
 
 но есть способ писать красивый и понятный код и без исключений (solution-6)
+
+
+
+
+
+## 09_05 Решение 4. Монада Result и оператор bind
+
+начнём сразу с чистой практики без теоретической подготовки
+
+В этом уроке будем улучшать solution-2.ex
+
+вот часть кода 2го решения.
+```elixir
+  def handle_user(data, state) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->                               # <
+        state = Map.put(state, :user, user)        # <
+        handle_address(data, state)
+
+      {:error, error} ->                           # <
+        {:error, error}                            # <
+    end
+  end
+
+  def handle_address(data, state) do
+    case C.validate_address(data["address"]) do
+      {:ok, address} ->                             # <
+        state = Map.put(state, :address, address)   # <
+        create_order(data, state)
+
+      {:error, error} ->                            # <
+        {:error, error}                             # <
+    end
+  end
+```
+ранее уже обсуждали то, что здесь повторяется один и тот же паттерн
+- case
+- вызов функции
+- при успехе идём дальше - вызов следующей ф-и в цепочке
+- при ошибке - сразу вернуть ошибку, остановив цепочку вызовов
+
+другими словами в том решении у нас есть цепочка функций, и на каждом шаге
+идёт оценка того идём дальше или "падаем" с ошибкой
+
+тут возникает идея как бы так связать функции на основе нужного нам паттерна.
+
+по аналогии с оператором pipe(`|>`) - он по сути связывает функции передавая
+output одной как input в первый аргумент следующей в цепочке ф-и
+```elixir
+  # f1 |> f2 |> f3 |> f4
+```
+
+но pipe никак не преобразует промежуточные резульаты, а просто прокидывает их
+дальше.
+
+нам же нужен своего рода "оператор" который бы реализовывал наш паттерн:
+```elixir
+  def handle_address(data, state) do
+    case C.validate_X(data["KEY"]) do               # <
+      {:ok, value} ->                               # <
+        state = Map.put(state, :key, value)         # <
+        next_chanined_func(data, state)             # <
+
+      {:error, error} ->                            # <
+        {:error, error}                             # <
+    end
+  end
+```
+
+```elixir
+  # f1 >>= f2 >>= f3 >>= f4
+```
+и так чтобы он умел останавливать цепочку выполнений при ошибках
+
+
+в FP Haskell есть такой оператор - и называется `bind` ( обозначается `>>=`)
+этот Bind оператор работает с ф-ями которые возращают результат в виде:
+- {:ok, result} | {:error, error}  - эту вещь еще называют "monada result"
+
+monada result - это значение спец. типа, содержащие кроме самого значения
+результата контекст в котором храниться успешность выполнения
+то есть здесь это можно обозначить внутри кортежа {:ok, _} и {:erorr, _}
+атомами :ok и :error
+
+в Elixir нет оператора `bind` (>>=), но можно саму написать функцию, заменяющую
+этот оператор.
+
+lib/fp.ex
+```elixir
+defmodule FP do
+
+  def bind(f1, f2, args) do
+    case f1.(args) do
+      {:ok, result} -> f2.(result)
+      {:error, error} -> {:error, error}
+    end
+  end
+end
+```
+
+готово, но пользоваться этим будет не удобно.
+потому как объединить в чепочку более 2х функций будет трудно.
+
+сделаем так чтобы результат bind можно было объединять в чепочку.
+
+сделаем так чтобы bind возращал не результат вычисления(monada result), а
+своего рода "ленивое вычислени" - другую функцию. То есть сделаем так чтобы
+наш bind Не делал само вычисление а строил композицию двух функций, возращая
+функцию внутри которой описано ленивое вычисление которое можно будет вызвать
+по требованию:
+
+```elixir
+  def bind(f1, f2) do
+    fn args ->
+      case f1.(args) do
+        {:ok, result} -> f2.(result)
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+```
+
+```elixir
+bind(f1,f2)  # -  даст не результат, а функцию а значит:
+bind(f1, f2) |> bind(f3) |> bind(f4)  # ... с любым кол-вом доп функций
+```
+
+```elixir
+composited_func = bind(f1, f2) |> bind(f3) |> bind(f4) # строим чепочку
+composited_func(args)                          # триггерим "ленивое вычисление"
+```
+
+> испытываем наш bind на простейшем практическом примере
+
+```elixir
+defmodule FP do
+
+  def bind(f1, f2) do
+    fn args ->
+      case f1.(args) do
+        {:ok, result} -> f2.(result)
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
+  # для удобства вызова
+  # здесь идёт композиция двух функций и их вызов
+  def try_bind do
+    func = bind(&f1/1, &f2/1)
+    func.(7)
+  end
+
+  def f1(a) do
+    {:ok, a + 1}
+  end
+
+  def f2(a) do
+    {:ok, a + 10}
+  end
+
+  def f3(a) do
+    {:ok, a + 100}
+  end
+
+end
+```
+
+```sh
+iex -S mix
+```
+
+```elixir
+iex> FP.try_bind
+{:ok, 18}
+```
+
+как это отработало
+- вызвали f1(7) - дало 8  (сделало +1)
+- вызвали f2(8) - дало 18 (сделало +10)
+
+
+делаем композицию из 3х функций
+```elixir
+  def try_bind do
+    func = bind(&f1/1, &f2/1) |> bind(&f3/1)
+    #                         ^^^^^^^^^^^^^
+    func.(7)
+  end
+  # ...
+  def f3(a), do: {:ok, a + 100}
+```
+
+```elixir
+iex>r FP
+iex> FP.try_bind
+{:ok, 118}
+```
+
+композиция из 4х функций:
+```elixir
+  def try_bind do
+    func = bind(&f1/1, &f2/1) |> bind(&f3/1) |> bind(&f4/1)
+    func.(7)
+  end
+
+  def f1(a), do: {:ok, a + 1}
+  def f2(a), do: {:ok, a + 10}
+  def f3(a), do: {:ok, a + 100}
+
+  def f4(a), do: {:ok, a + 1000} # +
+```
+
+проверяем остановку посередине цепочки вызовов:
+
+```elixir
+  def f2(a) do
+    # {:ok, a + 10}
+    {:error, :boom} # это приведёт к остановке вызовов
+  end
+```
+
+```elixir
+r FP
+{:reloaded, [FP]}
+
+iex> FP.try_bind
+{:error, :boom}
+```
+
+на Haskell этот же код создания композицией ф-и выглядил бы так
+
+```elixir
+  def try_bind do
+    func = bind(&f1/1, &f2/1) |> bind(&f3/1) |> bind(&f4/1)
+    func.(7)
+    # Haskell:
+    # 7 |> f1 >>= f2 >>= f3 >>= f4 >>=
+  end
+```
+
+
+### пишем solution-4 используя свою функцию bind.
+
+первая засада
+в нашем bind по цепочке проходит одно значение,
+то есть каждая последующая ф-я в цепочке принимает значение из предыдущей ф-и:
+
+```elixir
+# f1(a)
+#     `-- распаковывается из кортежа(контекста) и подаётся в f2(a)
+```
+
+но нам нужно выстроить цепочку функций валидации.
+а у нас валидирующие функции принимают два значения: data + state:
+
+```elixir
+  def handle_address(data, state) do
+    #                ^^^^^^^^^^^
+    case C.validate_address(data["address"]) do
+      #                     ^^^^^^^^^^^^^^^
+      {:ok, address} ->
+        state = Map.put(state, :address, address)
+        create_order(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+```
+
+вот и получается что напрямую через bind соединить
+- validate_incomming_data
+- validate_user
+- validate_address
+- validate_books
+не получится, т.к. каждая такая ф-я при успехе возращает конкретную сущность
+а не некий общий для всех state который бы мог ходить по всем ф-ям в цепочке
+поэтому нужны функции обёртки, через которые мы могли бы передавать state:
+
+по простому говоря нужны ф-и обёртки прогоняющие через себя значение state
+и принимать и отдавать state:
+
+- для validate_incoming_data ф-ю-обёртку пока не делаем:
+  она у нас будет всё так же принимать на вход data и отдавать {:ok, data}
+  при успехе и {:error, error} при ошибке
+
+```elixir
+  def step_validate_user(data) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->
+        state = %{data: data, user: user}
+        {:ok, state}
+
+      error -> error # {:error, error}
+    end
+  end
+
+  def step_validate_address(state) do
+    case C.validate_address(state.data["address"]) do
+      {:ok, address} ->
+        state = Map.put(state, :address, address)
+        {:ok, state}
+
+      error -> error
+    end
+  end
+
+  # handle_books + create_order
+  def step_validate_books(state) do
+    state.data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      {books, nil} ->
+        state = Map.put(state, :books, books)
+        {:ok, state}
+
+      error -> error
+    end
+  end
+
+  def step_create_order(state) do
+    {:ok, M.Order.create(state.user, state.address, state.books)}
+  end
+
+```
+формируем композицию функций (цепочку вызовов) на основе нашего bind
+```elixir
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    f =
+      FP.bind(&C.validate_incoming_data/1, &step_validate_user/1)
+      |> FP.bind(&step_validate_address/1)
+      |> FP.bind(&step_validate_books/1)
+      |> FP.bind(&step_create_order/1)
+
+    f.(data)
+  end
+```
+
+проверка
+```sh
+mix compile
+iex -S mix
+```
+
+```elixir
+# берём тестовы данные
+iex> data = Bookshop.test_data()
+%{
+  "address" => "Freedom str 7/42 City State",
+  "books" => [
+    %{
+      "author" => "Scott Wlaschin",
+      "title" => "Domain Modeling Made Functional"
+    },
+    %{
+      "author" => "Mikito Takada",
+      "title" => "Distributed systems for fun and profit"
+    },
+    %{"author" => "Marx, Valim, Tate", "title" => "Adopting Elixir"}
+  ],
+  "user" => "Joe"
+}
+
+# передаём данные в новое решение
+iex> Bookshop.Solution4.handle(data)
+{:ok,
+ %Bookshop.Model.Order{
+   client: %Bookshop.Model.User{id: "Joe", name: "Joe"},
+   address: %Bookshop.Model.Address{
+     state: nil,
+     city: nil,
+     other: "Freedom str 7/42 City State"
+   },
+   books: [
+     %Bookshop.Model.Book{title: "Adopting Elixir", author: "Marx, Valim, Tate"},
+     %Bookshop.Model.Book{
+       title: "Distributed systems for fun and profit",
+       author: "Mikito Takada"
+     },
+     %Bookshop.Model.Book{
+       title: "Domain Modeling Made Functional",
+       author: "Scott Wlaschin"
+     }
+   ]
+ }}
+```
+
+запускаем тесты исправляя их так чтобы работали через Solution4:
+```elixir
+defmodule Bookshop.SolutionTest do
+  use ExUnit.Case
+  alias Bookshop.Model, as: M
+  # alias Bookshop.Solution1, as: S
+  # alias Bookshop.Solution2, as: S
+  # alias Bookshop.Solution3, as: S
+  alias Bookshop.Solution4, as: S   # <<<
+  # .. код тестов без изменений
+```
+
+
+Для большей правильности дописываю обёртку для validate_incoming_data
+чтобы эта ф-я принимала data а выдвала state, который бы уже дальше передавался
+по всем другим validation-функциям. Так чтобы можно было например вместо ф-и
+step_validate_user поставить любую другую:
+
+```elixir
+  def handle(data) do
+    f =
+      FP.bind(&step_validate_incoming_data/1, &step_validate_user/1)
+      |> FP.bind(&step_validate_address/1)
+      |> FP.bind(&step_validate_books/1)
+      |> FP.bind(&step_create_order/1)
+
+    f.(data)
+  end
+
+  def step_validate_incoming_data(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        state = %{data: data}
+        {:ok, state}
+
+      error ->
+        error
+    end
+  end
+
+  def step_validate_user(state) do # << принимаю state а не data
+    case C.validate_user(state.data["user"]) do
+      {:ok, user} ->
+        state = Map.put(state, :user, user)  # <<<
+        {:ok, state}
+
+      error ->
+        error
+    end
+  end
+```
+
+сравнимаем решение-2 и решение-4
+
+- по количеству кода примерно одинаково, но решение-4 более читабельное
+потому как у нас перед глазами есть вся цепочка вызовов:
+```elixir
+  def handle(data) do
+    f =
+      FP.bind(&step_validate_incoming_data/1, &step_validate_user/1)
+      |> FP.bind(&step_validate_address/1)
+      |> FP.bind(&step_validate_books/1)
+      |> FP.bind(&step_create_order/1)
+
+    f.(data)
+  end
+```
+тогда как в solution-2 вся цепочка "спрятана в матрёшку"
+
+но доп. кода пришлось писать примерно столько же как в решении-2
+просто bind не очень подходит конкретно к этому сценарию:
+- когда у нас есть промежуточные результаты вычислений, которые нам надо
+  прокидывать дальше по цеполчке до выхода
+
+- bind очень хорошо подходит, когда вход одной функции совпадает с другой ф-ей
+  (как в операторе pipe)
+
+конкретно в нашем случае с валидацией, каждая валидирующая фун-я выдаёт свои
+какие-то значения, то есть эти значения не совместимы между фун-ями цепочки
+и пришлось писать обёртки над функциями чтобы запоминать их все в промежуточном
+значении state.
+
+
+#### копаем теорию ФП глубже: формализация FP.bind
+
+```elixir
+defmodule FP do
+
+  @type successful() :: any()
+  @type error() :: any()
+  @type monada_result() :: {:ok, successful() | {:error, error()}}
+  # придумываем тип функции для bind (для аргумента f1 и для f2)
+  @type m_fun() :: (any() -> monada_result()) # описание типа для функции
+
+  @spec bind(m_fun(), m_fun()) :: m_fun()
+  def bind(f1, f2) do
+    fn args ->
+      case f1.(args) do
+        {:ok, result} -> f2.(result)
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+```
+
+Вот эту штуку называю "монадой"(Monada)
+```elixir
+{:ok, successful() | {:error, error()}}
+```
+вообще монады бывают разные и эта одна из монад, причем достаточно популярная.
+говорят что ф-я, которая возращает значение типа
+`{:ok, successful() | {:error, error()}}`
+(здесь мы его обозначем как  `@type monada_result()`)
+является монодической функцией - здесь мы назовём её `m_fun` - @type m_fun()
+
+вот и получается что в нашей системе типов монодическая функция (m_fun) это
+- функция принимающая на вход один аргумент любого типа (`any()`)
+- и возращающая monada_result. (т.е. обёртку в виде кортежа ok или error)
+```elixir
+  @type m_fun() :: (any() -> monada_result()) # Это описание типа для функции
+```
+
+вот и получается что наш bind это ф-я которая принимает две монодические
+функии, и возращает как своё значение тоже монодическую функцию
+```elixir
+  @spec bind(m_fun(), m_fun()) :: m_fun()
+  #          arg1     arg2        return
+  def bind(f1, f2) do
+    ...
+  end
+```
+проверим корректность описания наших типов
+```sh
+mix compile
+Compiling 2 files (.ex)
+Generated bookshop app
+# норм - ошибок нет
+```
+
+#### выход на sequence из Haskell
+
+если посмотреть на этот код:
+```elixir
+  def step_validate_books(state) do
+    state.data["books"]
+    |> Enum.map(&C.validate_book/1)     # (1) отдаёт список monada_result()
+    |> Enum.reduce({[], nil}, fn        # (2) свёртка списка из monada_result()
+      {:ok, book}, {books, nil} ->
+        {[book | books], nil}
+
+      {:error, error}, {books, nil} ->
+        {books, {:error, error}}
+
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      {books, nil} ->
+        state = Map.put(state, :books, books)
+        {:ok, state}
+
+      {_, error} ->
+        error
+    end
+  end
+```
+здесь у нас есть функция C.validate_book, которая
+- на вход принимает "книги" (некий обьект)
+- и возращает `monada_result()` (нами описанный выше тип обозначающий обёртку
+  `{:ok,...}|{:error,...}`)
+
+- Enum.map на выходе отдаст нам список из monada_result() для каждой из поданых
+книг
+- Enum.reduce (свёртка) нам нужна для того, чтобы пройтись по списку состоящему
+  из monada_result() и вывести из него есть ошибки или нет
+
+то есть другими словами весь этот код внутри step_validate_user по сути
+generic поведение, которое можно было бы обобщить и абстрагировать
+
+продумываем как это сделать
+somefunc - имя нашей новой функции(пока не придумали как назвать)
+
+```elixir
+@spec somefunc([monada_result()]) :: {:ok, [successful()]} | {:error, error()}
+#               (1)                  ^(2)      ^(3)                    ^(4)
+```
+то есть по сути такая функция somefunc перобразует список из monada_result() (1)
+в новую монаду где либо список успешных значений либо ошибка
+
+в Haskell есть такая библиотечная ф-я и называется `sequence`:
+```elixir
+@spec sequence([monada_result()]) :: {:ok, [successful()]} | {:error, error()}
+```
+
+
+```elixir
+defmodule FP do
+
+  @type successful() :: any()
+  @type error() :: any()
+  @type monada_result() :: {:ok, successful() | {:error, error()}}
+  @type m_fun() :: (any() -> monada_result())
+
+  #... bind
+
+  # пишем свою реализацию sequence из Haskell (абстракция для вывода списка монад)
+  @spec sequence([monada_result()]) :: {:ok, [successful()]} | {:error, error()}
+  def sequence(result_list)
+    result_list
+    |> Enum.reduce({[], nil}, fn
+      {:ok, result}, {results, nil} -> {[result | results], nil}
+      {:error, error}, {books, nil} -> {results, {:error, error}}
+      #                        ^flag of no-error
+      _maybe_result, acc -> acc
+    end)
+    |> case do
+      {results, nil} ->
+        {:ok, results}
+
+      {_, error} ->
+        error
+    end
+  end
+```
+
+Теперь можно переписать вот этот код на использование абтсракции sequence
+```elixir
+  def step_validate_books(state) do
+    state.data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      #                        ^flag of no-error
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      {books, nil} ->
+        state = Map.put(state, :books, books)
+        {:ok, state}
+
+      {_, error} ->
+        error
+    end
+  end
+```
+
+```elixir
+  def step_validate_books(state) do
+    state.data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> FP.sequence()
+    |> case do
+      {:ok, books} ->
+        state = Map.put(state, :books, books)
+        {:ok, state}
+
+      error -> error # {:error, error} -> {:error, error}
+    end
+  end
+```
+проверяем запуская тесты - работает!
+
+В кратце что мы здесь из новых фишек ФП освоили:
+- посмотрели на монаду
+- на связывание двух монодических функций в "одну" (композицию функций)
+- преобразование списка монад(monada_result()) в новую монаду (sequence из Haskell)
+  (эта ФП-шная фишка уже "чутка покруче"
 
 
