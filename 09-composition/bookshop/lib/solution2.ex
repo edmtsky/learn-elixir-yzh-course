@@ -6,27 +6,38 @@ defmodule Bookshop.Solution2 do
   def handle(data) do
     case C.validate_incoming_data(data) do
       {:ok, data} ->
-        case C.validate_user(data["user"]) do
-          {:ok, user} ->
-            case C.validate_address(data["address"]) do
-              {:ok, address} ->
-                state = %{user: user, address: address}
-                create_order(data["books"], state)
-
-              {:error, error} ->
-                {:error, error}
-            end
-
-          {:error, error} ->
-            {:error, error}
-        end
+        state = %{}
+        handle_user(data, state)
 
       {:error, error} ->
         {:error, error}
     end
   end
 
-  def create_order(books, state) do
+  def handle_user(data, state) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->
+        state = Map.put(state, :user, user)
+        handle_address(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def handle_address(data, state) do
+    case C.validate_address(data["address"]) do
+      {:ok, address} ->
+        state = Map.put(state, :address, address)
+        create_order(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # handle_books + create_order
+  def create_order(%{"books" => books}, state) do
     books # data["books"]
     |> Enum.map(&C.validate_book/1)
     |> Enum.reduce({[], nil}, fn

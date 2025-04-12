@@ -1831,10 +1831,208 @@ handle_books - вернёт при успехе список книг,..
   end
 ```
 
+> handle_address
 
-26:46 наконец-то! подошли к сути solution-2 которое хотим сделать
-31:20 думаем как дальше уменьшаем вложенность
-31:40 выход на state - для передачи промежуточных значений в Order.create
-34:50 выносим код в handle_address
+унифицируем извлечение промежуточных значений, будем везде передавать (Map)data
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            case C.validate_address(data["address"]) do      # Этот код будем
+              {:ok, address} ->                              # выносить в ф-ю
+                state = %{user: user, address: address}
+                create_order(data, state)
+                #            ^^^^
+                #...
+            end
+            #...
+        end
+        #...
+    end
+  end
+
+  def handle_address(data, state) do
+    #...             ^^^^ Map
+  end
+
+  def create_order(%{"books" => books}, state) do
+  #                ^^^^^^^^^^^^^^^^^^^
+    books # data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      # {books, nil} -> {:ok, books}
+      {books, nil} -> {:ok, M.Order.create(state.user, state.address, books)} # +
+      {_, error} -> error
+    end
+  end
+```
+
+приходим к такому коду(убрали еще один уровень вложенности)
+
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        case C.validate_user(data["user"]) do
+          {:ok, user} ->
+            state = %{user: user}         # +
+            handle_address(data, state)   # +
+
+          {:error, error} ->
+            {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def handle_address(data, state) do
+    case C.validate_address(data["address"]) do
+      {:ok, address} ->
+        state = Map.put(state, :address, address)
+        create_order(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+```
+
+проверяем(mix test) - работает. идём дальше.
+
+#### выносим handle_user
+
+```elixir
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        state = %{}                # +
+        handle_user(data, state)   # +
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def handle_user(data, state) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->
+        state = Map.put(state, :user, user)
+        handle_address(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # ....
+```
+проверяем - работает
+теперь у нас во всех функция один уровень вложенности:
+```elixir
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    case C.validate_incoming_data(data) do
+      {:ok, data} ->
+        state = %{}
+        handle_user(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def handle_user(data, state) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->
+        state = Map.put(state, :user, user)
+        handle_address(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def handle_address(data, state) do
+    case C.validate_address(data["address"]) do
+      {:ok, address} ->
+        state = Map.put(state, :address, address)
+        create_order(data, state)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # handle_books + create_order
+  def create_order(%{"books" => books}, state) do
+    books # data["books"]
+    |> Enum.map(&C.validate_book/1)
+    |> Enum.reduce({[], nil}, fn
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+    |> case do
+      # {books, nil} -> {:ok, books}
+      {books, nil} -> {:ok, M.Order.create(state.user, state.address, books)} # +
+      {_, error} -> error
+    end
+  end
+```
+как результат у нас получилось 4 функции по цепочке вызывающие друг друга
+своего рода матрёшка.
+
+теперь чётко видно "что за чем идёт" - на каждом шаге
+то есть теперь проследить цепочку вызова функций намного проще и понятнее
+- убрали проблему большой вложенности case-блоков
+- добавить новые шаги теперь намного легче - просто дописать новый handle_*
+  и добавить его в нужное мечто цепочки
+- теперь можно "шаги" менять местами например сначала валидировать адрес затем
+  пользователя
+
+а значит это решение уже лучше 1го, хотя и не идеально:
+- много одинакового, повторяющегося кода ("мокрый код")
+```elixir
+  def handle_user(data, state) do
+    case C.validate_user(data["user"]) do
+      {:ok, user} ->                               # <
+        state = Map.put(state, :user, user)        # <
+        handle_address(data, state)
+
+      {:error, error} ->                           # <
+        {:error, error}                            # <
+    end
+  end
+
+  def handle_address(data, state) do
+    case C.validate_address(data["address"]) do
+      {:ok, address} ->                             # <
+        state = Map.put(state, :address, address)   # <
+        create_order(data, state)
+
+      {:error, error} ->                            # <
+        {:error, error}                             # <
+    end
+  end
+```
+если присмотреться то можно увидеть паттерн одинаковых действий:
+- case
+- вызов функции
+- при успехе идём дальше - вызов следующей ф-и в цепочке
+- при фейле - сразу вернуть ошибку
+
+другими словами напрашивается сделать некую абстракцию для этого паттерна.
+и если сделать такую абстракцию то можно будет более изящно и кратко выражать
+тоже самое, без дублирования одного и того же кода
+чтобы укоротить его.
 
 
