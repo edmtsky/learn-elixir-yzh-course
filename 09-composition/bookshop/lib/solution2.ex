@@ -38,7 +38,8 @@ defmodule Bookshop.Solution2 do
 
   # handle_books + create_order
   def create_order(%{"books" => books}, state) do
-    books # data["books"]
+    # data["books"]
+    books
     |> Enum.map(&C.validate_book/1)
     |> Enum.reduce({[], nil}, fn
       {:ok, book}, {books, nil} -> {[book | books], nil}
@@ -47,7 +48,8 @@ defmodule Bookshop.Solution2 do
     end)
     |> case do
       # {books, nil} -> {:ok, books}
-      {books, nil} -> {:ok, M.Order.create(state.user, state.address, books)} # +
+      # +
+      {books, nil} -> {:ok, M.Order.create(state.user, state.address, books)}
       {_, error} -> error
     end
   end

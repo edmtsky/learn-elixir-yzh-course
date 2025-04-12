@@ -2,7 +2,8 @@ defmodule Bookshop.SolutionTest do
   use ExUnit.Case
   alias Bookshop.Model, as: M
   # alias Bookshop.Solution1, as: S
-  alias Bookshop.Solution2, as: S
+  # alias Bookshop.Solution2, as: S
+  alias Bookshop.Solution3, as: S
 
   test "create order" do
     valid_data = TestData.valid_data()

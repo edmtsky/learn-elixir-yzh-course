@@ -1,16 +1,16 @@
 # Урок 9 Композиция функций
 
-- 09.01 Задача на композицию функций
-- 09.02 Решение 1. Вложенные case
-- 09.03 Решение 2. Каждый case в отдельной функции
-- 09.04 Решение 3. Использование исключений
-- 09.05 Решение 4. Монада Result и оператор bind
-- 09.06 Решение 5. Pipeline
-- 09.07 Решение 6. do-нотация
-- 09.08 Что такое монада?
+- 09_01 Задача на композицию функций
+- 09_02 Решение 1. Вложенные case
+- 09_03 Решение 2. Каждый case в отдельной функции
+- 09_04 Решение 3. Использование исключений
+- 09_05 Решение 4. Монада Result и оператор bind
+- 09_06 Решение 5. Pipeline
+- 09_07 Решение 6. do-нотация
+- 09_08 Что такое монада?
 
 
-### 09.01 Задача на композицию функций
+### 09_01 Задача на композицию функций
 
 Это последний урок данного курса. Здесь будем собирать в единое целое все свои
 новые знания, и применим свои новые знания на практике.
@@ -286,7 +286,7 @@ json
 
 
 
-## 09.02 Решение 1. Вложенные case
+## 09_02 Решение 1. Вложенные case
 
 подготовка
 - создать новый проект
@@ -955,7 +955,7 @@ iex> B.Solution1.handle(data)
 
 
 
-## 09.03 Решение 2. Каждый case в отдельной функции
+## 09_03 Решение 2. Каждый case в отдельной функции
 
 Здесь мы переходим от такого solution-1:
 ```elixir
@@ -2034,5 +2034,634 @@ handle_books - вернёт при успехе список книг,..
 и если сделать такую абстракцию то можно будет более изящно и кратко выражать
 тоже самое, без дублирования одного и того же кода
 чтобы укоротить его.
+
+
+
+## 09_04 Решение 3. Использование исключений
+
+на начало работ у нас есть:
+- валидирующие функции в Controller возращающие {:ok, data} или {:error, err}
+- solution2.ex использующий эти функции выстраивая цепочку вызовов
+
+Будем делать логику "на исключениях" (И именно так во многи ЯП и делают)
+- нужно переписать валидирующие ф-и так, чтобы они бросали исключения
+- создать свои пользовательские исключения (4 штуки)
+
+> где размещать свои кастомные исключения
+- отдельный модуль Errors
+
+lib/errors.ex:
+```elixir
+defmodule Bookshop.Errors do
+
+  defmodule InvalidIncomingData do
+    defexception []
+
+    @impl true
+    def exception(_), do: %InvalidIncomingData{}
+
+    @impl true
+    def message(_ex), do: "InvalidIncomingData"
+  end
+
+  defmodule UserNotFound do
+    defexception [:name]
+
+    @impl true
+    def exception(name), do: %UserNotFound{name: name}
+
+    @impl true
+    def message(ex), do: "UserNotFound #{ex.name}"
+  end
+
+  defmodule InvalidAddress do
+    defexception [:data]
+
+    @impl true
+    def exception(data), do: %InvalidAddress{data: data}
+
+    @impl true
+    def message(ex), do: "InvalidAddress #{ex.data}"
+  end
+
+  defmodule BookNotFound do
+    defexception [:title, :author]
+
+    @impl true
+    def exception({title, author}), do: %BookNotFound{title: title, author: author}
+
+    @impl true
+    def message(ex), do: "BookNotFound #{ex.title} #{ex.author}"
+  end
+
+end
+```
+
+```sh
+iex -S mix
+```
+проверяю киюдаются ли исключения
+```elixir
+iex> raise Bookshop.Errors.InvalidIncomingData
+** (Bookshop.Errors.InvalidIncomingData) InvalidIncomingData
+
+iex> raise Bookshop.Errors.InvalidAddress, "address"
+** (Bookshop.Errors.InvalidAddress) InvalidAddress address
+
+iex> raise Bookshop.Errors.UserNotFound, "username"
+** (Bookshop.Errors.UserNotFound) UserNotFound username
+
+iex> raise Bookshop.Errors.BookNotFound, {"title", "author"}
+** (Bookshop.Errors.BookNotFound) BookNotFound title author
+```
+
+#### реализуем второй набор функций для работы с нашими исключениями
+
+```elixir
+  # ...
+  alias Bookshop.Errors, as: E
+
+  # старая для кототорой пишем новую
+  @spec validate_incoming_data(map()) :: {:ok, map()} | {:error, :invalid_incoming_data}
+  def validate_incoming_data(%{"user" => _, "address" => _, "books" => _} = data) do
+    {:ok, data}
+  end
+
+  def validate_incoming_data(_) do
+    {:error, :invalid_incoming_data}
+  end
+
+
+  # новая:
+  @spec validate_incoming_data!(map()) :: map()
+  def validate_incoming_data!(%{"user" => _, "address" => _, "books" => _} = data) do
+    data
+  end
+
+  def validate_incoming_data!(_) do
+    raise E.InvalidIncomingData()
+  end
+```
+
+Остальные:
+```elixir
+  @spec validate_user!(name :: String.t()) :: User.t()
+  def validate_user!(name) do
+    if name in @existing_users do
+      %M.User{id: name, name: name}
+    else
+      raise E.UserNotFound, name
+    end
+  end
+
+  @spec validate_address!(String.t()) ::  Address.t()
+  def validate_address!(data) do
+    if String.length(data) > 5 do
+      %M.Address{other: data}
+    else
+      raise E.InvalidAddress, data
+    end
+  end
+
+  @spec validate_book!(map()) :: Book.t()
+  def validate_book!(%{"author" => author} = data) do
+    if author in @existing_authors do
+      %M.Book{title: data["title"], author: data["author"]}
+    else
+      raise E.BookNotFound, {data["title"], data["author"]}
+    end
+  end
+```
+
+проверяем работу ф-ий через консоль
+```sh
+iex -S mix
+```
+
+```elixir
+# то, что будем прокидывать в Controller.handle
+iex> data = Bookshop.test_data
+%{
+  "address" => "Freedom str 7/42 City State",
+  "books" => [
+    %{
+      "author" => "Scott Wlaschin",
+      "title" => "Domain Modeling Made Functional"
+    },
+    %{
+      "author" => "Mikito Takada",
+      "title" => "Distributed systems for fun and profit"
+    },
+    %{"author" => "Marx, Valim, Tate", "title" => "Adopting Elixir"}
+  ],
+  "user" => "Joe"
+}
+
+iex> Bookshop.Controller.validate_incoming_data!(data)
+%{
+  "address" => "Freedom str 7/42 City State",
+  "books" => [
+    %{
+      "author" => "Scott Wlaschin",
+      "title" => "Domain Modeling Made Functional"
+    },
+    %{
+      "author" => "Mikito Takada",
+      "title" => "Distributed systems for fun and profit"
+    },
+    %{"author" => "Marx, Valim, Tate", "title" => "Adopting Elixir"}
+  ],
+  "user" => "Joe"
+}
+
+# убираем к-в пару:
+iex> data2 = Map.drop(data, ["books"])
+%{"address" => "Freedom str 7/42 City State", "user" => "Joe"}
+
+iex> Bookshop.Controller.validate_incoming_data!(data2)
+** (Bookshop.Errors.InvalidIncomingData) InvalidIncomingData
+    (bookshop 0.1.0) lib/controller.ex:57: Bookshop.Controller.validate_incoming_data!/1
+    iex:4: (file)
+```
+работает. кидает исключение на не валидные данные
+
+
+#### пишем solution-3 на новых функциях валидации с исключениями
+
+lib/solution3.ex
+```elixir
+defmodule Bookshop.Solution3 do
+  alias Bookshop.Model, as: M
+  alias Bookshop.Controller, as: C
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    # ... здесь нужно вызвать "цепочку" ф-ий валидации и собрать Order
+    # через try/rescue
+  end
+```
+
+
+после валидации у нас будут все нужные значения для создания Order
+```elixir
+  def handle(data) do
+    try do
+      data = C.validate_incoming_data!(data)
+      # Извлекаем ключи из Map
+      %{
+        "user" = user,
+        "address" = address,
+        "books" = books,
+      } = data
+      # ... собрать Order...
+
+    rescue # будет перехватывать только Эликсировские исключения
+      # перехватыем только наши доменные исключения,
+      e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
+        {:error, Exception.message(e)}
+    end
+  end
+```
+
+вот уже готовое решение-3
+```elixir
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    try do
+      data = C.validate_incoming_data!(data)
+      %{
+        "user" => username,
+        "address" => address_str,
+        "books" => books_data,
+      } = data
+      cat = C.validate_user!(username)
+      #                    ^ with exception
+      address = C.validate_address!(address_str)
+      #                           ^
+      books =
+        Enum.map(books_data, fn one_book_data ->
+          C.validate_book!(one_book_data )
+          #              ^
+        end)
+      order = M.Order.create(cat, address, books)
+      {:ok, order}
+    rescue
+      e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
+        {:error, Exception.message(e)}
+    end
+  end
+```
+
+компилируем и проверяем работает ли?
+```sh
+mix compile && ies -S mix
+```
+
+```elixir
+iex> data = Bookshop.test_data
+%{
+  "address" => "Freedom str 7/42 City State",
+  "books" => [
+    %{
+      "author" => "Scott Wlaschin",
+      "title" => "Domain Modeling Made Functional"
+    },
+    %{
+      "author" => "Mikito Takada",
+      "title" => "Distributed systems for fun and profit"
+    },
+    %{"author" => "Marx, Valim, Tate", "title" => "Adopting Elixir"}
+  ],
+  "user" => "Joe"
+}
+
+iex> Bookshop.Solution3.handle(data)
+{:ok,
+ %Bookshop.Model.Order{
+   client: %Bookshop.Model.User{id: "Joe", name: "Joe"},
+   address: %Bookshop.Model.Address{
+     state: nil,
+     city: nil,
+     other: "Freedom str 7/42 City State"
+   },
+   books: [
+     %Bookshop.Model.Book{
+       title: "Domain Modeling Made Functional",
+       author: "Scott Wlaschin"
+     },
+     %Bookshop.Model.Book{
+       title: "Distributed systems for fun and profit",
+       author: "Mikito Takada"
+     },
+     %Bookshop.Model.Book{title: "Adopting Elixir", author: "Marx, Valim, Tate"}
+   ]
+}}
+```
+работает.
+
+проверяем тесты
+```sh
+mix test
+```
+
+```elixir
+Compiling 4 files (.ex)
+Generated bookshop app
+Running ExUnit with seed: 980081, max_cases: 8
+
+.....
+
+  1) test invalid incoming data (Bookshop.SolutionTest)
+     test/solution_test.exs:31
+     Assertion with == failed
+     code:  assert S.handle(valid_data) == {:error, :invalid_incoming_data}
+     left:  {:error, "InvalidIncomingData"}
+     right: {:error, :invalid_incoming_data}
+     stacktrace:
+       test/solution_test.exs:34: (test)
+...
+
+  3) test create order (Bookshop.SolutionTest)
+     test/solution_test.exs:8
+  ...
+
+Finished in 0.02 seconds (0.00s async, 0.02s sync)
+10 tests, 5 failures
+```
+
+
+### Разбираемся с тестами по порядку
+
+способ запустить один тест из тестового модуля
+
+'test create order'
+```sh
+mix test test/solution_test.exs:8
+```
+
+```html
+Compiling 1 file (.ex)
+Generated bookshop app
+Running ExUnit with seed: 149533, max_cases: 8
+Excluding tags: [:test]
+Including tags: [location: {"test/solution_test.exs", 8}]
+
+  1) test create order (Bookshop.SolutionTest)
+     test/solution_test.exs:8
+     Assertion with == failed
+     code:  assert S.handle(valid_data) ==
+              {:ok,
+               %M.Order{
+                 client: %M.User{id: "Joe", name: "Joe"},
+                 address: %M.Address{state: nil, city: nil, other: "Freedom str 7/42 City State"},
+                 books: [
+                   %M.Book{title: "Adopting Elixir", author: "Marx, Valim, Tate"},
+                   %M.Book{title: "Distributed systems for fun and profit", author: "Mikito Takada"},
+                   %M.Book{title: "Domain Modeling Made Functional", author: "Scott Wlaschin"}
+                 ]
+               }}
+     left:  {
+              :ok,
+              %Bookshop.Model.Order{
+                address: %Bookshop.Model.Address{city: nil, other: "Freedom str 7/42 City State", state: nil},
+                books: [
+RED                  %Bookshop.Model.Book{title: "Domain Modeling Made Functional", author: "Scott Wlaschin"},
+RED                  %Bookshop.Model.Book{title: "Distributed systems for fun and profit", author: "Mikito Takada"},
+                  %Bookshop.Model.Book{author: "Marx, Valim, Tate", title: "Adopting Elixir"}
+                ],
+                client: %Bookshop.Model.User{id: "Joe", name: "Joe"}
+              }
+            }
+     right: {
+              :ok,
+              %Bookshop.Model.Order{
+                address: %Bookshop.Model.Address{city: nil, other: "Freedom str 7/42 City State", state: nil},
+                books: [
+                  %Bookshop.Model.Book{author: "Marx, Valim, Tate", title: "Adopting Elixir"},
+GREEN             %Bookshop.Model.Book{title: "Distributed systems for fun and profit", author: "Mikito Takada"},
+GREEN             %Bookshop.Model.Book{title: "Domain Modeling Made Functional", author: "Scott Wlaschin"}
+                ],
+                client: %Bookshop.Model.User{id: "Joe", name: "Joe"}
+              }
+            }
+     stacktrace:
+       test/solution_test.exs:11: (test)
+
+
+Finished in 0.01 seconds (0.00s async, 0.01s sync)
+5 tests, 1 failure, 4 excluded
+```
+
+опять проблема в порядке книг в books поле
+
+порядок отличается потому, что
+- в solution-2:
+```elixir
+    |> Enum.reduce({[], nil}, fn                         # <<<
+      {:ok, book}, {books, nil} -> {[book | books], nil}
+      {:error, error}, {books, nil} -> {books, {:error, error}}
+      _maybe_book, acc -> acc
+    end)
+```
+
+- solution-3:
+
+```elixir
+      books =
+        Enum.map(books_data, fn one_book_data ->
+          C.validate_book!(one_book_data )
+        end)
+```
+в этом коде нет разворачивания(reverse order)
+как вариант решения можно сортировать книги внутри создания Order:
+
+```elixir
+defmodule Bookshop.Model do
+  # ...
+  defmodule Order do
+    defstruct [:client, :address, :books]
+
+    def create(client, address, books) do
+      %__MODULE__{
+        client: client,
+        address: address,
+        books: Enum.sort(books)   # +
+      }
+    end
+  end
+
+end
+```
+теперь синхронизуем порядок книг в solution-1 solution-2 запуская для них тесты
+
+и потом снова смотрим на тесты solution-3
+```sh
+mix test
+Running ExUnit with seed: 603072, max_cases: 8
+
+.....
+
+  1) test invalid address (Bookshop.SolutionTest)
+     test/solution_test.exs:45
+     Assertion with == failed
+     code:  assert S.handle(data) == {:error, :invalid_address}
+     left:  {:error, "InvalidAddress wrong"}
+     right: {:error, :invalid_address}
+     stacktrace:
+       test/solution_test.exs:50: (test)
+
+
+
+  2) test invalid user (Bookshop.SolutionTest)
+     test/solution_test.exs:37
+     Assertion with == failed
+     code:  assert S.handle(data) == {:error, :user_not_found}
+     left:  {:error, "UserNotFound Nemean"}
+     right: {:error, :user_not_found}
+     stacktrace:
+       test/solution_test.exs:42: (test)
+
+
+
+  3) test invalid book (Bookshop.SolutionTest)
+     test/solution_test.exs:53
+     Assertion with == failed
+     code:  assert S.handle(data) == {:error, :book_not_found}
+     left:  {:error, "BookNotFound Functional Web Development with Elixir, OTP and Phoenix Lance Halvorsen"}
+     right: {:error, :book_not_found}
+     stacktrace:
+       test/solution_test.exs:60: (test)
+
+.
+
+  4) test invalid incoming data (Bookshop.SolutionTest)
+     test/solution_test.exs:31
+     Assertion with == failed
+     code:  assert S.handle(valid_data) == {:error, :invalid_incoming_data}
+     left:  {:error, "InvalidIncomingData"}
+     right: {:error, :invalid_incoming_data}
+     stacktrace:
+       test/solution_test.exs:34: (test)
+
+
+Finished in 0.05 seconds (0.00s async, 0.05s sync)
+10 tests, 4 failures
+```
+### допиливаем тесты на solution-3 чтобы при ошибках выдвало атомы
+
+лучше чтобы клиентам отправлялись строковые представления об ошибках валидации
+но для простоты, чтобы не исправлять solution-1 solution-2 сделаем так чтобы
+solution3 при фейлах тоже выдавало атомы:
+
+> добавляем Logger:
+```elixir
+defmodule Bookshop.Solution3 do
+  alias Bookshop.Model, as: M
+  alias Bookshop.Controller, as: C
+  alias Bookshop.Errors, as: E
+
+  require Logger # +
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    try do
+      # без измнений
+    rescue
+      e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
+        Logger.error(Exception.message(e)) # выводим текст в консоль
+        {:error, E.description(e)}
+    end
+  end
+
+end
+```
+
+теперь сделаем функцию которая бы преобазовывала исключения в атомы
+```elixir
+defmodule Bookshop.Errors do
+  defmodule InvalidIncomingData do ... end
+  defmodule UserNotFound do ... end
+  defmodule InvalidAddress do ... end
+  defmodule BookNotFound do ... end
+
+  # new:
+  def description(%InvalidIncomingData{}), do: :invalid_incoming_data
+  def description(%InvalidAddress{}), do: :invalid_address
+  def description(%UserNotFound{}), do: :user_not_found
+  def description(%BookNotFound{}), do: :book_not_found
+
+end
+```
+
+```sh
+mix test
+```
+```html
+Compiling 1 file (.ex)
+Generated bookshop app
+Running ExUnit with seed: 912199, max_cases: 8
+
+.....
+13:34:11.976 [error] InvalidAddress wrong       # << вывод из Logger-а
+.
+13:34:11.979 [error] UserNotFound Nemean
+.
+13:34:11.979 [error] InvalidIncomingData
+.
+13:34:11.979 [error] BookNotFound Functional Web Development with Elixir, OTP and Phoenix Lance Halvorsen
+..
+Finished in 0.04 seconds (0.00s async, 0.04s sync)
+10 tests, 0 failures
+```
+
+тесты работают, теепрь можно сравнить solution-3 и solution-2
+
+solution3.ex:
+```elixir
+defmodule Bookshop.Solution3 do
+  alias Bookshop.Model, as: M
+  alias Bookshop.Controller, as: C
+  alias Bookshop.Errors, as: E
+
+  require Logger
+
+  @spec handle(map()) :: {:ok, M.Order.t()} | {:error, any()}
+  def handle(data) do
+    try do
+      data = C.validate_incoming_data!(data)
+
+      %{
+        "user" => username,
+        "address" => address_str,
+        "books" => books_data
+      } = data
+
+      cat = C.validate_user!(username)
+      address = C.validate_address!(address_str)
+
+      books =
+        Enum.map(books_data, fn one_book_data ->
+          C.validate_book!(one_book_data)
+        end)
+
+      order = M.Order.create(cat, address, books)
+      {:ok, order}
+    rescue
+      e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
+        Logger.error(Exception.message(e))
+        {:error, E.description(e)}
+    end
+  end
+end
+```
+
+приемущества solution-3:
+- четкий, компактный и понятный код,
+- код легко чистается и воспринимается линейно
+- сразу виден happy path
+- обработка ошибок тоже видна и находится отдельно, занимая мало места
+- намного короче и понятнее чем solution-2
+- очень просто поменять местами обработчки(ф-и валидации) и добавить новые.
+
+что не так с solution-3:
+- норм для сторонников делать логику программы на исключениях
+
+### почему не любят исключения
+- ожидаешь в try-rescue только свои исключения а по факту в него прилетают
+  исключения из других каки-то модулей, из сторонних библиотек
+- часто бывает так что тяжело понять откуда вообще взялось исключение
+  это особенно актуально для всяких там RuntimeError
+  - именно поэтому и рекомендуется делать пользовательские исключения и
+    отлавливать только их:
+```elixir
+    try do
+      # ...
+    rescue
+      e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
+        # ...
+    end
+```
+
+но есть способ писать красивый и понятный код и без исключений (solution-6)
 
 
