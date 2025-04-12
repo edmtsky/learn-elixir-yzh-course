@@ -1307,7 +1307,6 @@ defmodule Bookshop.ControllerTest do
   alias Bookshop.Model, as: M
 
 
-  # @tag :pending
   test "validate incoming data" do
     valid_data = TestData.valid_data()
     assert C.validate_incoming_data(valid_data) == {:ok, valid_data}
@@ -1451,6 +1450,119 @@ Running ExUnit with seed: 599907, max_cases: 8
 .....
 Finished in 0.03 seconds (0.00s async, 0.03s sync)
 5 tests, 0 failures
+```
+
+
+#### интеграционные тесты для solution-1
+
+test/solution_test.exs:
+```elixir
+defmodule Bookshop.SolutionTest do
+  use ExUnit.Case
+  # import Solution1
+  alias Bookshop.Solution1, as: S
+
+  test "todo" do
+    assert 1 + 1 == 2
+  end
+
+end
+```
+
+модуль SolutionTest будет один на все наши решения.
+
+пишем базовый сценарий.(happy path)
+- ф-я hanlde принимает валидные данные (data) и должна вернуть валидный Order
+
+```elixir
+defmodule Bookshop.SolutionTest do
+  use ExUnit.Case
+  alias Bookshop.Model, as: M
+  alias Bookshop.Solution1, as: S
+
+  test "create order" do
+    valid_data = TestData.valid_data()
+    assert S.handle(valid_data) == {:ok, %M.Order{}}
+  end
+
+end
+```
+
+```elixir
+  test "create order" do
+    valid_data = TestData.valid_data()
+    assert S.handle(valid_data) == {:ok, %M.Order{
+      client: %M.User{id: "Joe", name: "Joe"},
+      address: %M.Address{
+        state: nil,
+        city: nil,
+        other: "Freedom str 7/42 City State"
+      },
+      books: [
+        %M.Book{title: "Domain Modeling Made Functional", author: "Scott Wlaschin"},
+        %M.Book{title: "Distributed systems for fun and profit", author: "Mikito Takada"},
+        %M.Book{title: "Adopting Elixir", author: "Marx, Valim, Tate"},
+      ],
+    }}
+  end
+```
+
+> о порядке книг в тесте, проблемы матчинга элементов в списке
+запускаем тесты и сталкиваемся с проблема порядка книг
+
+как обычно это решают
+- если список элементов приходит из неких внешних источников, которые не
+  гарантируют порядок, то обычно такой список до ассерта сортируют чтобы
+  всегда ганартировать нужный порядок, иначе тест будет падать
+- в нашем случае порядок детерминирован(один и тот же, и не меняется)
+  поэтому можно просто статически изменить порядок на нужный
+
+
+дописываем все возможные ветвления в Controller.handle
+
+```elixir
+  test "invalid incoming data" do
+    valid_data = TestData.invalid_data()
+
+    assert S.handle(valid_data) == {:error, :invalid_incoming_data}
+  end
+
+  test "invalid user" do
+    data =
+      TestData.valid_data()
+      |> Map.put("user", "Nemean")
+
+    assert S.handle(data) == {:error, :user_not_found}
+  end
+
+  test "invalid address" do
+    data =
+      TestData.valid_data()
+      |> Map.put("address", "wrong")
+
+    assert S.handle(data) == {:error, :invalid_address}
+  end
+
+  # здесь берём книгу "которой нет"(невалидную) и добавляем в начало списка книг
+  test "invalid book" do
+    invalid_book = TestData.invalid_book()
+
+    data =
+      TestData.valid_data()
+      |> update_in(["books"], fn books -> [invalid_book | books] end)
+
+    assert S.handle(data) == {:error, :book_not_found}
+  end
+```
+
+проверяем - все тесты проходят - можно начинать рефакториг
+```sh
+mix test
+Running ExUnit with seed: 843639, max_cases: 8
+
+..........
+Finished in 0.04 seconds (0.00s async, 0.04s sync)
+10 tests, 0 failures
 ```
 
 
