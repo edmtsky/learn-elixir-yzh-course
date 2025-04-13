@@ -3583,3 +3583,300 @@ Finished in 0.05 seconds (0.00s async, 0.05s sync)
 ```
 
 
+
+
+## 09_07 решение 6. do-нотация
+
+в эликсире есть макрос with, по сути это do-нотация из haskell.
+
+в одном из прлошлых решений познакомились с оператором bind из haskell, который
+связывает две функцию образую новую функцию(своего рода ленивое вычисление)
+
+do-нотация в haskell
+это нечто похожее одновременно и на bind и на pipeline
+идея в том чтобы пошагово выполнять код и иместь возможность остановиться
+в месте возникшей ошибке и вывести значение с ошибкой.
+
+вот как эта do-нотация описывается в языке haskell:
+```haskell
+do
+  var1 <- func1(42)             // (2)
+  var2 = func2(var1)            // (1)
+  var3 <- func3(var2)           // (2)
+
+  do_something(var1, var2, var3)
+```
+
+- 1. - это обычный вызов функции, и присвоение возр-его значения в переменную var2
+- 2. `vn <- f(..)` это нечто похожее на bind(haskell)
+  функция возращает некую монаду, а стрелка (`<-`) раскрывает эту монаду и если
+  там монада успеха ({:ok, value}) то происходит присвоение значения в переменную
+  если же там монада с ошибкой ({:error,...} то выполнение всего do-блока
+  останавливается на шаге где возникла ошибка, и результатом блока становится
+  последнее присвоенное значение (на месте ошибки)
+
+другими словами do-нотация позволяет выполнять цепочку кода с возможностью
+остановиться в месте ошибки и получить доступ к этой ошибке через return-значение
+
+тот же код на эликсир (в виде синтаксического сахара):
+```elixir
+  with var1 <- func1(42),
+       var2 = func2(var1),
+       var3 <- func3(var2) do
+    do_something(var1, var2, var3)
+  end
+```
+
+тот же код на эликсир (без синтаксического сахара):
+```elixir
+  with (var1 <- func1(42), var2 = func2(var1), var3 <- func3(var2)) do
+    do_something(var1, var2, var3)
+  end
+```
+особенность в том что внутри `with() do` есть доступ ко всем переменным,
+которые описаны внутри with(..)
+сами же вызовы присвоений внутри with(..) выполняются как pipeline
+`var1 <- func1(42)`
+и здесь `<-` - означает обычный pattern-matching, а не оператор bind как в haskell.
+т.е. суть `<-` в том, что если значение из функции "паттерн-матчится" на
+указанный паттерн то pipeline продолжает свою работу, а иначе пайплайн
+останавливается и возращается значение из последней вызванной ф-и (где была ошибка)
+
+подходим к реализации solution-6 на макросе with:
+начиная поочередно описывать шаги получения значений внутри макроса `with-do`
+смотря на solution-3 но используя функции не бросающие исключения
+```elixir
+defmodule bookshop.solution6 do
+  alias bookshop.model, as: m
+  alias bookshop.controller, as: c
+
+  @spec handle(map()) :: {:ok, m.order.t()} | {:error, any()}
+  def handle(data) do
+    # with pattern <- function_call(data) do
+    with {:ok, data} <- c.validate_incoming_data(data) do
+      #                                               ^....
+      #              ^ не просто присвоение а pattern-matching
+      #              с извлечением нужным нам значений в переменные
+      #    ^шаблон+ переменные доступные далее по коду
+
+      :todo_create_order
+    end
+  end
+end
+```
+reference solution3.ex:
+```elixir
+  def handle(data) do
+    try do
+      data = c.validate_incoming_data!(data)     # step1
+
+      %{
+        "user" => username,
+        "address" => address_str,
+        "books" => books_data
+      } = data                                   # step 2
+
+      user = c.validate_user!(username)          # step 3
+      address = c.validate_address!(address_str) # step 4
+
+      books =                                    # step 5
+        enum.map(books_data, fn one_book_data ->
+          c.validate_book!(one_book_data)
+        end)
+
+      order = m.order.create(user, address, books)
+      {:ok, order}
+    rescue
+      e in [e.invalidincomingdata, e.usernotfound, e.invalidaddress, e.booknotfound] ->
+        logger.error(exception.message(e))
+        {:error, e.description(e)}
+    end
+  end
+```
+
+```elixir
+defmodule bookshop.solution6 do
+  alias bookshop.model, as: m
+  alias bookshop.controller, as: c
+
+  @spec handle(map()) :: {:ok, m.order.t()} | {:error, any()}
+  def handle(data) do
+    # with pattern <- function_call(data) do
+    with {:ok, data} <- c.validate_incoming_data(data), # 1 step
+         #           ^(1)
+         %{"user" => un, "address" => addr_s, "books" => books_data } = data, #2
+         #                                                            ^(2)
+         {:ok, user} <- c.validate_user(un) do
+         #           ^(3)
+      :some
+    end
+  end
+end
+```
+- 1. pattern-matching
+- 2. простое присвоение, т.к. data уже провалидирована и не может содержать ошибки
+- 3. pattern-matching (un - username) на этом шаге из имени получаем обьект юзера
+
+
+```elixir
+  def handle(data) do
+    with {:ok, data} <- c.validate_incoming_data(data),
+         %{"user" => uname, "address" => addr_s, "books" => books_data } = data,
+         {:ok, user} <- c.validate_user(uname),
+         {:ok, address} <- c.validate_address(addr_s),
+         books = enum.map(books_data, fn ob_data -> c.validate_book(ob_data) end),
+         ... # books is a list of:
+        # [{:ok, book}, {:error, :book_not_found}, {:ok, book}, ..]
+        # используя fp.sequence преобразовывали в:
+        # {:ok, [book1, book2, book3] | {:error, :book_not_found}}
+    do
+      :create_order
+    end
+  end
+```
+
+поэтому делаем шаг преобзования списка монад в новую монаду (fp.sequence)
+```elixir
+  def handle(data) do
+    with {:ok, data} <- c.validate_incoming_data(data),
+         %{"user" => uname, "address" => addr_s, "books" => books_data } = data,
+         {:ok, user} <- c.validate_user(uname),
+         {:ok, address} <- c.validate_address(addr_s),
+         books = enum.map(books_data, fn ob_data -> c.validate_book(ob_data) end),
+         {:ok, books} <- fp.sequence(books) do
+      :create_order #...
+    end
+  end
+```
+
+теперь всё что нужно для создания order готово, можно создавать "заказ":
+```elixir
+defmodule bookshop.solution6 do
+  alias bookshop.model, as: m
+  alias bookshop.controller, as: c
+
+  @spec handle(map()) :: {:ok, m.order.t()} | {:error, any()}
+  def handle(data) do
+    with {:ok, data} <- c.validate_incoming_data(data),
+         %{"user" => uname, "address" => addr_s, "books" => books_data } = data,
+         {:ok, user} <- c.validate_user(uname),
+         {:ok, address} <- c.validate_address(addr_s),
+         books = enum.map(books_data, fn ob_data -> c.validate_book(ob_data) end),
+         {:ok, books} <- fp.sequence(books)
+    do
+      order = m.order.create(user, address, books)
+      {:ok, order}
+    end
+  end
+end
+```
+
+првоеряем работу, mix compile, mix test  и можно вручную:
+
+```elixir
+iex> data = bookshop.test_data
+%{
+  "user" => "joe",
+  "address" => "freedom str 7/42 city state",
+  "books" => [
+    %{"author" => "scott wlaschin", "title" => "..." },
+    %{"author" => "mikito takada", "title" => "..." },
+    %{"author" => "marx, valim, tate", "title" => "..."}
+  ]
+}
+
+iex> bookshop.solution6.handle(data)
+{:ok, %bookshop.model.order{...}}
+# сократил весь вывод для краткост. суть в том что вернуло именно order
+```
+
+### сравнение solution-6(with) и solution-3(на исключениях)
+
+по сути подходы очень похожи и суть происходящего такая же
+- валидация данных
+- извлечение из пришедших данных(data) всех нужных ключей (user, addr, books)
+- провалидировали юзера, адрес, и отдельно каждую книгу
+- "развернули" список провалидированых книг в монаду с книгами fp.sequence
+- создали order из подготовленных значений
+
+в solution-3 есть блок с перехватом исключений (rescue)
+в solution-6 такого нет т.к. макрос with под капотом именно так и будет
+отрабатывать - как только паттерн не сойдётся будет останов и возрат причины
+ошибки
+
+как итог solution-6:
+- хотя очень похож на решение на исключениях, но выглядит более компактным
+  не нужно писать блок rescue(catch-исключений)
+- вообще не использовали никаких исключений
+- в шагах pipeline ванутри макроса with использовали оригинальные ф-и валидации,
+  которые возращают нам монады {:ok,...}|{:error,...}
+- как итог решении на with виден весь happy-path в одном месте
+- вся обработка ошибок "спрятана" и не видна, но реализуется макросом with и
+  работает на основе pattern-matching-а
+
+вывод решение-6 на макросе with:
+- самое короткое, самое красивое и самое понятное
+- именно так и принято делать в эликсире.
+
+
+решение на with по сравнению с решением на bind и pipeline:
+- для pipeline и bind нужно:
+  - писать кучу ф-ий обёрток, для того чтобы хранить промежуточные значения
+    в state, тогда как в решении с with значения доступны без state
+
+solution-6 позволяет иметь промежуточные значения(1a,2a,3a) прямо под рукой и
+удобно с ними работать без всяких state передавать в итоговую ф-ию order.create
+
+```elixir
+defmodule bookshop.solution6 do
+  alias bookshop.model, as: m
+  alias bookshop.controller, as: c
+
+  @spec handle(map()) :: {:ok, m.order.t()} | {:error, any()}
+  def handle(data) do
+    with {:ok, data} <- c.validate_incoming_data(data),
+         %{"user" => uname, "address" => addr_s, "books" => books_data } = data,
+         {:ok, user} <- c.validate_user(uname),
+         #     ^(1a)
+         {:ok, address} <- c.validate_address(addr_s),
+         #     ^(2a)
+         books = enum.map(books_data, fn ob_data -> c.validate_book(ob_data) end),
+         {:ok, books} <- fp.sequence(books)
+         #     ^(3a)
+    do
+      order = m.order.create(user, address, books)
+      #                      ^1b    ^2b     ^3b
+      {:ok, order}
+    end
+  end
+end
+```
+
+#### Еще пару слов о макросе with
+
+макрос with - "прекрасен" и не заменим, c его помощью очень элегантно и просто
+решать задачи требующие сложной логики, сложной валидации.
+макрос with настолько хорош, что его хотят реализовать в языке erlang.
+именно этот макрос with даёт языку elixir одно из преимуществ над языком erlang.
+без этого макроса в erlang для подобных сложных валидаций приходится использовать
+такие вещи как, разобранный нами pipeline, а это куда менее удобно и требует
+больше кода.
+
+
+
+### итог урока
+
+- реализовали все 6 решений на разных способах
+- узнали и освоили как можно делать композицию ф-ий разными способами
+- познакомились с самым ходовым на практике макросом with
+- осознали что макрос with позволяет компоновать всё что угодно
+- познакомились с альтернотивой with-у - pipeline, способного компоновать
+  специально пердназначеные для компоновки ф-ии(обёртки со state)
+
+для тех кто привык к исключением нужно осознать, что все проблемы с controlflow
+легче, быстрее и изящее решать с помощью макроса with.
+(в частности не надо создавать кучу модулей под исключения.)
+
+дальше копнём функциональное программирование на более подробном уровне.
+"что такое монада?"
+
