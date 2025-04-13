@@ -2277,7 +2277,7 @@ defmodule Bookshop.Solution3 do
         "address" => address_str,
         "books" => books_data,
       } = data
-      cat = C.validate_user!(username)
+      user = C.validate_user!(username)
       #                    ^ with exception
       address = C.validate_address!(address_str)
       #                           ^
@@ -2286,7 +2286,7 @@ defmodule Bookshop.Solution3 do
           C.validate_book!(one_book_data )
           #              ^
         end)
-      order = M.Order.create(cat, address, books)
+      order = M.Order.create(user, address, books)
       {:ok, order}
     rescue
       e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
@@ -2619,7 +2619,7 @@ defmodule Bookshop.Solution3 do
         "books" => books_data
       } = data
 
-      cat = C.validate_user!(username)
+      user = C.validate_user!(username)
       address = C.validate_address!(address_str)
 
       books =
@@ -2627,7 +2627,7 @@ defmodule Bookshop.Solution3 do
           C.validate_book!(one_book_data)
         end)
 
-      order = M.Order.create(cat, address, books)
+      order = M.Order.create(user, address, books)
       {:ok, order}
     rescue
       e in [E.InvalidIncomingData, E.UserNotFound, E.InvalidAddress, E.BookNotFound] ->
