@@ -12,3 +12,6 @@ test:
 # with integration tests
 test-all:
 	mix test
+
+cli:
+	iex -S mix

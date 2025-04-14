@@ -45,5 +45,4 @@ defmodule WorkReport do
   def version() do
     IO.puts(@name <> " v" <> @version)
   end
-
 end

@@ -30,6 +30,7 @@ defmodule IntegrationTest do
     call_and_check_response(["--month=5", "--day=1", report_1], "response-day-not-found")
   end
 
+  @tag :integration
   test "help and version" do
     call_and_check_response(["--help"], "response-help")
     call_and_check_response(["--version"], "response-version")

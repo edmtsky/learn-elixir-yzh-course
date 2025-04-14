@@ -19,5 +19,4 @@ defmodule FormatterTest do
     assert Formatter.format_time(600) == "10h"
     assert Formatter.format_time(615) == "10h 15m"
   end
-
 end
