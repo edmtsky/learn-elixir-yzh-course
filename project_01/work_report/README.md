@@ -52,9 +52,10 @@
 
 Пример:
 
-```shell
-$ work_report -m 5 -d 3 test/sample/report-1.md
-Day: 3 mon
+```sh
+work_report -m 5 -d 3 test/sample/report-1.md
+
+Day: 03 mon
  - DEV: Review Pull Requests - 27m
  - COMM: Daily Meeting - 15m
  - DEV: Implement filters for Logstash - 39m
@@ -129,8 +130,9 @@ Month: May
 
 Тут все довольно просто:
 
-```shell
-$ work_report --help
+```sh
+work_report --help
+
 USAGE:
     work_report [OPTIONS] <path/to/report.md>
 OPTIONS:
@@ -142,19 +144,19 @@ OPTIONS:
 
 Примеры:
 
-```shell
-$ work_report test/sample/report-1.md
-$ work_report -m 5 test/sample/report-1.md
-$ work_report -d 3 test/sample/report-1.md
-$ work_report -m 5 -d 3 test/sample/report-1.md
-$ work_report --month=5 --day=3 test/sample/report-1.md
-$ work_report --version
-$ work_report --help
+```sh
+work_report test/sample/report-1.md
+work_report -m 5 test/sample/report-1.md
+work_report -d 3 test/sample/report-1.md
+work_report -m 5 -d 3 test/sample/report-1.md
+work_report --month=5 --day=3 test/sample/report-1.md
+work_report --version
+work_report --help
 ```
 
 ## Что нужно сделать
 
-Я рекомендую начать с моделирования предметной области. 
+Я рекомендую начать с моделирования предметной области.
 
 Вам нужно решить, какими сущностями должна быть представлена предметная область, и из чего эти сущности состоят. Это могут быть, например: "задача", "время выполнения", "категория", "отчет за день", "отчет за месяц". Тут все на ваше усмотрение.
 
@@ -206,7 +208,7 @@ mix escript.build
 
 Для запуска тестов нужно вызывать:
 
-```shell
+```sh
 mix test
 ```
 
