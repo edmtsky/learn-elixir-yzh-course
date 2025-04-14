@@ -2,6 +2,9 @@ defmodule WorkReport do
   @moduledoc """
   # Analyze report file and gather work statistics
   """
+  alias WorkReport.Parser
+  alias WorkReport.Formatter
+  alias WorkReport.Analizer
 
   @name "Work Report"
   @version "1.0.0"
@@ -23,11 +26,28 @@ defmodule WorkReport do
     ]
   end
 
-  def do_report(params, _file) do
-    _month = Map.get(params, :month, :erlang.date() |> elem(1))
-    _day = Map.get(params, :day, :erlang.date() |> elem(2))
+  def do_report(params, filename) do
+    month_num = Map.get(params, :month, :erlang.date() |> elem(1))
+    day_num = Map.get(params, :day, :erlang.date() |> elem(2))
 
-    # TODO your implementation here
+    ret =
+      with {_lines_processed, months} <- Parser.parse_file(filename),
+           {:ok, report} <- Analizer.build_report(months, month_num, day_num) do
+        Formatter.format_report(report)
+        |> IO.puts()
+      end
+
+    case ret do
+      :ok ->
+        :ok
+
+      {:error, :month_not_found} ->
+        IO.puts("month #{month_num} not found")
+        # exit({:shutdown, 1})
+
+      {:error, :day_not_found} ->
+        IO.puts("day #{day_num} not found")
+    end
   end
 
   def help() do
@@ -45,5 +65,4 @@ defmodule WorkReport do
   def version() do
     IO.puts(@name <> " v" <> @version)
   end
-
 end

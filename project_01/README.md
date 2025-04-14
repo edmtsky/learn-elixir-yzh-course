@@ -36,6 +36,7 @@ README.md - описано что именно нужно сделать в ко
 пример
 `[DEV] Task-44 Implement - 52m`
 
+- category, description, required time
  - категория, описание, потреченное время
 
 есть сущность "отчёт за день":
