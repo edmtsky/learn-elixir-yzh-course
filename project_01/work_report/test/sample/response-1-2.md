@@ -1,4 +1,4 @@
-Day: 4 tue
+Day: 04 tue
  - COMM: Daily Meeting - 31m
  - DOC: TASK-42 Read BA documents - 15m
  - DOC: Read Service T API documents - 19m

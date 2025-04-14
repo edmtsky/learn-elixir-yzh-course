@@ -1,4 +1,4 @@
-Day: 3 mon
+Day: 03 mon
  - DEV: Review Pull Requests - 27m
  - COMM: Daily Meeting - 15m
  - DEV: Implement filters for Logstash - 39m

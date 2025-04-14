@@ -1,4 +1,4 @@
-Day: 5 wed
+Day: 05 wed
  - DEV: Review Pull Requests - 39m
  - COMM: Daily Meeting - 16m
  - DEV: Task-43 Impletent feature - 31m
