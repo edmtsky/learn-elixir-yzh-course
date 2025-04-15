@@ -697,3 +697,375 @@ end
 ```
 
 обновляем тесты и проверяем - ошибок нет
+
+
+
+### Part-3
+
+идея реализации парсера
+- идём построчно по файлу
+
+```elixir
+# Parser
+
+  # временный хэлпер чтобы можно было удобно вытащить отчёт из консоли
+  def get_report1() do
+    {:ok, content} = File.read("test/sample/report-1.md")
+    content
+  end
+
+  @spec parse(String.t()) :: Model.Report.t()
+  def parse(content) do
+    content
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(fn line -> line != "" end)
+    # ...
+  end
+```
+Это подготовка которая берёт входной текст, разбивает на части, удаляет
+пустые символы с конца строк и удаляет пустые строки
+
+реализация свёртки по списку строк
+
+и для свёртки нужен аккумулятор хранящий
+- Report
+- month_id (текущего месяца)
+- day_id (текущего дня)
+
+```elixir
+  @spec parse(String.t()) :: Model.Report.t()
+  def parse(content) do
+    content
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(fn line -> line != "" end)
+    |> Enum.reduce({Model.Report.new(), nil, nil}, fn line, acc -> :job end)
+    #              ^^^^^^^^ initial_acc^^^^^^^^^^      item acc
+  end
+```
+
+вариантов будет несколько поэтому сразу вывавниваем под несколько тел фу-ий
+
+```elixir
+  @spec parse(String.t()) :: Model.Report.t()
+  def parse(content) do
+    content
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(fn line -> line != "" end)
+    |> Enum.reduce({Model.Report.new(), nil, nil},
+      fn
+        "# " <> line, acc -> add_month(line, acc)
+        "##" <> line, acc -> add_day(line, acc)
+        line, acc -> add_task(line, acc)
+      end)
+  end
+```
+
+```elixir
+  def add_month(line, acc) do
+    #....
+  end
+```
+
+то как сделал бы я:
+```elixir
+  def add_month(line, {report, month_id, day_id}) do
+    {:ok, month_id, desc} = parse_month(line) # todo implement parse_month
+    month = Model.Month.new(month_id, desc)
+    report.add_month(month)                   # ошибка это не ООП
+    {report, month_id, nil}
+  end
+```
+
+решение автора курса:
+```elixir
+  def add_month(line, {report, _curr_month_id, _curr_day_id}) do
+    month_id = 1 # TODO implement by month name
+    month = Model.Month.new(month_id, line)
+    report = Model.Report.add_month(report, month)
+    {report, month_id, nil}
+  end
+```
+
+чтобы протестировать работу add_month добавляем заглушку
+```elixir
+  def add_day(_line, acc) do
+    acc
+  end
+
+  def add_task(_line, acc) do
+    acc
+  end
+```
+
+```elixir
+iex> recompile
+iex> P.parse(report)
+{%WorkReport.Model.Report{
+   months: [%WorkReport.Model.Month{id: 1, description: "May", days: []}]
+ }, 1, nil}
+```
+- curr_month_id - 1
+- curr_day_id - nil
+
+пробуем парсить отчёт с двумя месяцами
+
+```elixir
+  def get_report1() do
+    {:ok, content} = File.read("test/sample/report-2.md")
+    content
+  end
+```
+
+```elixir
+iex> report = P.get_report2()
+# ... полный текст отчёта
+
+iex> P.parse(report)
+{%WorkReport.Model.Report{
+   months: [
+     %WorkReport.Model.Month{id: 1, description: "March", days: []},
+     %WorkReport.Model.Month{id: 1, description: "April", days: []}
+   ]
+ }, 1, nil}
+```
+
+### реализация парсинга month_id
+имя месяца в его номер
+
+моя реализация:
+```elixir
+  defmodule Month do
+    @month_names [ "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december"]
+
+    # ...
+
+    @spec get_month_num(String.t()) :: {:ok, integer()} | {:error, any()}
+    def get_month_num(month_name) do
+      month_name = String.downcase(month_name)
+
+      case Enum.find_index(@month_names, fn m -> m == month_name end) do
+        nil -> {:error, :invalid_month_name}
+        n -> {:ok, n + 1}
+      end
+    end
+  end
+
+# test
+
+  test "get_month_num" do
+    assert Month.get_month_num("january") == {:ok, 1}
+    assert Month.get_month_num("January") == {:ok, 1}
+    assert Month.get_month_num("December") == {:ok, 12}
+    assert Month.get_month_num("not-a-month") == {:error, :invalid_month_name}
+  end
+```
+
+реализация автора:
+```elixir
+    @spec months() :: map()
+    def months() do
+      %{
+        1 => "January",
+        2 => "February",
+        3 => "March",
+        4 => "April",
+        5 => "May",
+        6 => "June",
+        7 => "July",
+        8 => "August",
+        9 => "September",
+        10 => "October",
+        11 => "November",
+        12 => "December"
+      }
+    end
+
+    @spec get_month_id(String.t()) :: {:ok, integer()} | :error
+    def get_month_id(month_name) do
+      month_ids = Enum.reduce(months(), %{}, fn {k, v}, acc ->
+        Map.put(acc, v, k)
+      end)
+
+      Map.fetch(month_ids, month_name)
+    end
+
+    # pipe:
+    def get_month_id(month_name) do
+      Enum.reduce(months(), %{}, fn {k, v}, acc -> Map.put(acc, v, k) end)
+      |> Map.fetch(String.capitalize(month_name))
+    end
+```
+
+```elixir
+  def add_month(line, {report, _curr_month_id, _curr_day_id}) do
+    # todo not only a happy path
+    {:ok, month_id} = Model.Month.get_month_id(line)
+    month = Model.Month.new(month_id, line)
+    report = Model.Report.add_month(report, month)
+    {report, month_id, nil}
+  end
+```
+
+проверяем что появились правильные month_id
+```elixir
+iex> recompile
+...
+iex> P.parse(report)
+{%WorkReport.Model.Report{
+   months: [
+     %WorkReport.Model.Month{id: 3, description: "March", days: []},
+     %WorkReport.Model.Month{id: 4, description: "April", days: []}
+   ]
+ }, 4, nil}
+```
+
+```elixir
+# defmodule Parser
+ alias WorkReport.Model.{Report, Month, Day, Task}
+```
+
+реализация добавления дня при парсинге
+
+моя реализация:
+```elixir
+  def add_day(line, {report, curr_month_id, _curr_day_id} = _acc) do
+    case String.split(" ", 2) do
+      [num, desc] ->
+        day_id = String.to_integer(num)
+        day = Day.new(day_id, desc)
+        update_report = Report.add_day(report, curr_month_id, day)
+        {update_report, curr_month_id, day_id}
+      _ ->
+        :do  #??
+    end
+  end
+```
+
+
+реализация автора
+на основе Integer.parse:
+```elixir
+iex> Integer.parse("01 tue")
+{1, " the"}
+```
+
+```elixir
+  def add_day(line, {report, curr_month_id, _curr_day_id} = _acc) do
+    {day_id, desc} = Integer.parse(String.trim(line))
+    description = String.trim(desc)
+    day = Day.new(day_id, desc)
+    updated_report = Report.add_day(report, curr_month_id, day)
+    {updated_report, curr_month_id, day_id}
+  end
+```
+
+
+```elixir
+iex> recompile
+iex> P.parse(P.get_report2())
+{%WorkReport.Model.Report{
+   months: [
+     %WorkReport.Model.Month{
+       id: 3,
+       description: "March",
+       days: [
+         %WorkReport.Model.Day{id: 9, description: " tue", tasks: []},
+         %WorkReport.Model.Day{id: 10, description: " wed", tasks: []}
+       ]
+     },
+     %WorkReport.Model.Month{
+       id: 4,
+       description: "April",
+       days: [
+         %WorkReport.Model.Day{id: 15, description: " thu", tasks: []},
+         %WorkReport.Model.Day{id: 16, description: " fri", tasks: []}
+       ]
+     }
+   ]
+ }, 4, 16}
+```
+
+реализация добавления задачи при парсинге файла
+```elixir
+
+  def add_task(line, {report, curr_month_id, curr_day_id}) do
+    # todo not only a happy path
+    {:ok, task} = parse_task(line)
+
+    updated_report = Report.add_task(report, curr_month_id, curr_day_id, task)
+    {updated_report, curr_month_id, curr_day_id}
+  end
+```
+
+проверка
+```elixir
+iex> recompile
+...
+iex> P.parse(P.get_report2())
+{%WorkReport.Model.Report{
+   months: [
+     %WorkReport.Model.Month{
+       id: 3, description: "March",
+       days: [
+         %WorkReport.Model.Day{
+           id: 9, description: " tue",
+           tasks: [
+             %Task{ category: "DEV", description: "TASK-15 implement feature", time: 42 },
+             %Task{ category: "COMM", description: "Daily Meeting", time: 24 },
+             %Task{ category: "DEV", description: "TASK-15 implement", time: 25 },
+             %Task{ category: "COMM", description: "Big Meeting", time: 73 },
+             %Task{ category: "COMM", description: "Yet another meeting", time: 53 },
+             %Task{ category: "DEV", description: "TASK-15 implement", time: 27 },
+             %Task{ category: "DEV", description: "TASK-15 tests", time: 45 }
+           ]
+         },
+         %WorkReport.Model.Day{
+           id: 10, description: " wed",
+           tasks: [
+             %Task{ category: "DEV", description: "Review Pull Requests", time: 17 },
+             %Task{ category: "COMM", description: "Sprint Planning", time: 60 },
+             %Task{ category: "DEV", description: "TASK-18 fix errors", time: 15 },
+             %Task{ category: "DEV", description: "TASK-18 tests", time: 35 },
+             %Task{ category: "DEV", description: "TASK-18 tests", time: 45 },
+             %Task{ category: "DEV", description: "TASK-18 tests", time: 43 },
+             %Task{category: "DOC", description: "TASK-18 write api doc", time: 24}
+           ]
+         }
+       ]
+     },
+     %WorkReport.Model.Month{
+       id: 4, description: "April",
+       days: [
+         %WorkReport.Model.Day{
+           id: 15, description: " thu",
+           tasks: [
+             %Task{ category: "COMM", description: "Daily Meeting", time: 19 },
+             %Task{ category: "DEV", description: "TASK-19 make test data", time: 32 },
+             %Task{ category: "DEV", description: "TASK-19 implementation", time: 64 },
+             %Task{ category: "DEV", description: "TASK-19 implementation", time: 24 },
+             %Task{ category: "DEV", description: "TASK-19 tests", time: 93 }
+           ]
+         },
+         %WorkReport.Model.Day{
+           id: 16, description: " fri",
+           tasks: [
+             %Task{ category: "DEV", description: "TASK-20 implementation", time: 17 },
+             %Task{ category: "COMM", description: "Daily Meeting", time: 22 },
+             %Task{ category: "DEV", description: "TASK-19 investigate bug", time: 43 },
+             %Task{ category: "DEV", description: "TASK-19 fix bug", time: 28 },
+             %Task{ category: "DEV", description: "TASK-20 implementation", time: 38 },
+             %Task{ category: "DEV", description: "TASK-20 implementation", time: 40 },
+             %Task{ category: "DEV", description: "TASK-20 test", time: 18 },
+             %Task{ category: "DOC", description: "TASK-21 read requirements", time: 32 }
+           ]
+         }
+       ]
+     }
+   ]
+ }, 4, 16}
+```
+

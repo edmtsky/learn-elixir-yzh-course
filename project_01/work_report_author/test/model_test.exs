@@ -62,4 +62,12 @@ defmodule ModelTest do
              ]
            }
   end
+
+  test "get_month_id" do
+    assert Month.get_month_id("january") == {:ok, 1}
+    assert Month.get_month_id("January") == {:ok, 1}
+    assert Month.get_month_id("JAnuAry") == {:ok, 1}
+    assert Month.get_month_id("December") == {:ok, 12}
+    assert Month.get_month_id("not-a-month") == :error
+  end
 end

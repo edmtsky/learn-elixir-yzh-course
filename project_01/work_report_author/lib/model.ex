@@ -89,6 +89,37 @@ defmodule WorkReport.Model do
 
       %__MODULE__{month | days: days}
     end
+
+    @doc """
+    Map month_id to name
+    """
+    @spec months() :: map()
+    def months() do
+      %{
+        1 => "January",
+        2 => "February",
+        3 => "March",
+        4 => "April",
+        5 => "May",
+        6 => "June",
+        7 => "July",
+        8 => "August",
+        9 => "September",
+        10 => "October",
+        11 => "November",
+        12 => "December"
+      }
+    end
+
+    @spec get_month_id(String.t()) :: {:ok, integer()} | :error
+    def get_month_id(month_name) do
+      month_ids =
+        Enum.reduce(months(), %{}, fn {k, v}, acc ->
+          Map.put(acc, v, k)
+        end)
+
+      Map.fetch(month_ids, String.capitalize(month_name))
+    end
   end
 
   defmodule Report do

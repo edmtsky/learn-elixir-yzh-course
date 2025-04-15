@@ -2,7 +2,7 @@ defmodule ParserTest do
   use ExUnit.Case
 
   alias WorkReport.Parser, as: P
-  alias WorkReport.Model.Task
+  alias WorkReport.Model.{Report, Month, Day, Task}
 
   test "parse time" do
     assert P.parse_time("1m") == 1
@@ -41,5 +41,23 @@ defmodule ParserTest do
 
     str2 = "[OPS] some - desc - 2m"
     assert {:error, :invalid_task} == P.parse_task(str2)
+  end
+
+  test "add_day" do
+    month = Month.new(1, "January")
+    report = Report.new() |> Report.add_month(month)
+    line = "16 tue"
+    acc = {report, 1, nil}
+
+    assert P.add_day(line, acc) ==
+             {%Report{
+                months: [
+                  %Month{
+                    id: 1,
+                    description: "January",
+                    days: [%Day{id: 16, description: " tue", tasks: []}]
+                  }
+                ]
+              }, 1, 16}
   end
 end
