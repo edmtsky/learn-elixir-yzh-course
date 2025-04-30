@@ -47,9 +47,9 @@ defmodule ParserTest do
     month = Month.new(1, "January")
     report = Report.new() |> Report.add_month(month)
     line = "16 tue"
-    acc = {report, 1, nil}
+    acc = {report, 1, nil, []}
 
-    assert P.add_day(line, acc) ==
+    assert P.add_day(1, line, acc) ==
              {%Report{
                 months: [
                   %Month{
@@ -58,6 +58,172 @@ defmodule ParserTest do
                     days: [%Day{id: 16, description: " tue", tasks: []}]
                   }
                 ]
-              }, 1, 16}
+              }, 1, 16, []}
+  end
+
+  test "parse, happy path" do
+    {:ok, report} = File.read("test/sample/report-4.md")
+
+    assert P.parse(report) ==
+             {%WorkReport.Model.Report{
+                months: [
+                  %WorkReport.Model.Month{
+                    id: 3,
+                    description: "March",
+                    days: [
+                      %WorkReport.Model.Day{
+                        id: 9,
+                        description: " tue",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-15 implement feature",
+                            time: 42
+                          },
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Daily Meeting",
+                            time: 24
+                          }
+                        ]
+                      },
+                      %WorkReport.Model.Day{
+                        id: 10,
+                        description: " wed",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "Review Pull Requests",
+                            time: 17
+                          },
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Sprint Planning",
+                            time: 60
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  %WorkReport.Model.Month{
+                    id: 4,
+                    description: "April",
+                    days: [
+                      %WorkReport.Model.Day{
+                        id: 15,
+                        description: " thu",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Daily Meeting",
+                            time: 19
+                          },
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-19 make test data",
+                            time: 32
+                          }
+                        ]
+                      },
+                      %WorkReport.Model.Day{
+                        id: 16,
+                        description: " fri",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-20 implementation",
+                            time: 17
+                          },
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-19 investigate bug",
+                            time: 43
+                          },
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-19 fix bug",
+                            time: 28
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }, []}
+  end
+
+  test "parse, with errors invalid month" do
+    {:ok, report} = File.read("test/sample/report-3.md")
+
+    assert P.parse(report) ==
+             {%WorkReport.Model.Report{
+                months: [
+                  %WorkReport.Model.Month{
+                    id: 3,
+                    description: "March",
+                    days: [
+                      %WorkReport.Model.Day{
+                        id: 9,
+                        description: " tue",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-15 implement feature",
+                            time: 42
+                          },
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Daily Meeting",
+                            time: 24
+                          },
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "Review Pull Requests",
+                            time: 17
+                          },
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Sprint Planning",
+                            time: 60
+                          }
+                        ]
+                      },
+                      %WorkReport.Model.Day{
+                        id: 15,
+                        description: " thu",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "COMM",
+                            description: "Daily Meeting",
+                            time: 19
+                          },
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-19 make test data",
+                            time: 32
+                          }
+                        ]
+                      },
+                      %WorkReport.Model.Day{
+                        id: 16,
+                        description: " fri",
+                        tasks: [
+                          %WorkReport.Model.Task{
+                            category: "DEV",
+                            description: "TASK-20 implementation",
+                            time: 17
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              [
+                {7, "invalid day @@10 wed"},
+                {12, "invalid month April@@"},
+                {20, "invalid category [DEV@@] TASK-19 investigate bug - 43m"},
+                {21, "invalid task [DEV] TASK-19 fix - bug - 28m"}
+              ]}
   end
 end
