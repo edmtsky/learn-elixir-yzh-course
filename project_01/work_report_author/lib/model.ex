@@ -1,4 +1,6 @@
 defmodule WorkReport.Model do
+  @type error_t() :: {integer(), String.t()}
+
   @doc """
   Returns a list of all valid categories
   """

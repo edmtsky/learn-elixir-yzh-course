@@ -39,14 +39,14 @@ defmodule WorkReport.Parser do
     content
   end
 
-  @spec parse(String.t()) :: Model.Report.t()
+  @spec parse(String.t()) :: {Model.Report.t(), [Model.error_t()]}
   def parse(content) do
     content
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
     |> Enum.filter(fn line -> line != "" end)
     |> Enum.reduce(
-      {Model.Report.new(), nil, nil},
+      {Model.Report.new(), nil, nil, []},
       fn
         "# " <> line, acc -> add_month(line, acc)
         "##" <> line, acc -> add_day(line, acc)
@@ -55,27 +55,27 @@ defmodule WorkReport.Parser do
     )
   end
 
-  def add_month(line, {report, _curr_month_id, _curr_day_id}) do
+  def add_month(line, {report, _curr_month_id, _curr_day_id, errors}) do
     # todo not only a happy path
     {:ok, month_id} = Month.get_month_id(line)
     month = Month.new(month_id, line)
     report = Report.add_month(report, month)
-    {report, month_id, nil}
+    {report, month_id, nil, errors}
   end
 
-  def add_day(line, {report, curr_month_id, _curr_day_id} = _acc) do
+  def add_day(line, {report, curr_month_id, _curr_day_id, errors} = _acc) do
     {day_id, desc} = Integer.parse(String.trim(line))
     description = String.trim(desc)
     day = Day.new(day_id, desc)
     updated_report = Report.add_day(report, curr_month_id, day)
-    {updated_report, curr_month_id, day_id}
+    {updated_report, curr_month_id, day_id, errors}
   end
 
-  def add_task(line, {report, curr_month_id, curr_day_id}) do
+  def add_task(line, {report, curr_month_id, curr_day_id, errors}) do
     # todo not only a happy path
     {:ok, task} = parse_task(line)
 
     updated_report = Report.add_task(report, curr_month_id, curr_day_id, task)
-    {updated_report, curr_month_id, curr_day_id}
+    {updated_report, curr_month_id, curr_day_id, errors}
   end
 end
